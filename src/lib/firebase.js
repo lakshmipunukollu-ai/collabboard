@@ -2,13 +2,13 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, goOnline, ref, onValue } from 'firebase/database';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'YOUR_API_KEY',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'YOUR_PROJECT.firebaseapp.com',
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://YOUR_PROJECT.firebaseio.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'YOUR_PROJECT_ID',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'YOUR_PROJECT.appspot.com',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || 'YOUR_SENDER_ID',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || 'YOUR_APP_ID',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDc23VpqvGcf3MFJKcYvQqZjMB6hOXw0gU',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'collabboard-lakshmi.firebaseapp.com',
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://collabboard-lakshmi-default-rtdb.firebaseio.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'collabboard-lakshmi',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'collabboard-lakshmi.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '583378121574',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:583378121574:web:672075c4e552f4138ecea7',
 };
 
 console.log('🔥 Firebase Config:', {
@@ -26,16 +26,24 @@ goOnline(database);
 const startTest = Date.now();
 console.log('⏱️ Testing Firebase connection speed...');
 
-// Check connection status
+// Check connection status and log all changes
 const testRef = ref(database, '.info/connected');
+let connectionCount = 0;
 onValue(testRef, (snap) => {
   const connected = snap.val();
   const elapsed = Date.now() - startTest;
-  console.log(`🔌 Firebase connection: ${connected ? 'CONNECTED ✅' : 'DISCONNECTED ❌'} (${elapsed}ms)`);
+  connectionCount++;
+  
+  console.log(`🔌 Firebase connection #${connectionCount}: ${connected ? 'CONNECTED ✅' : 'DISCONNECTED ❌'} (${elapsed}ms)`);
+  
   if (!connected) {
     console.error('⚠️ Firebase NOT connected! Check network/firewall.');
-  } else if (elapsed > 1000) {
-    console.warn(`⚠️ Connection took ${elapsed}ms - very slow! Check Firebase region.`);
+  } else if (elapsed > 1000 && connectionCount === 1) {
+    console.warn(`⚠️ Initial connection took ${elapsed}ms - check Firebase region.`);
+  }
+  
+  if (connectionCount > 1) {
+    console.warn(`🔄 Firebase reconnection detected (count: ${connectionCount})`);
   }
 });
 

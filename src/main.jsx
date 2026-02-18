@@ -4,9 +4,9 @@ import { ClerkProvider } from '@clerk/clerk-react';
 import App from './App.jsx';
 import './index.css';
 
-const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || 'pk_test_dml0YWwtbG9jdXN0LTM0LmNsZXJrLmFjY291bnRzLmRldiQ';
 
-if (!PUBLISHABLE_KEY) {
+if (!PUBLISHABLE_KEY || PUBLISHABLE_KEY === 'undefined') {
   throw new Error('Missing Publishable Key. Please add VITE_CLERK_PUBLISHABLE_KEY to your .env.local file');
 }
 

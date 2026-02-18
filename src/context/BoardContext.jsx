@@ -72,6 +72,8 @@ export function BoardProvider({ children }) {
   );
 
   useEffect(() => {
+    console.log('🔥 Firebase: Setting up real-time listeners...');
+    
     let lastLogTime = 0;
     const unsubObjects = onValue(firebaseObjectsRef, (snapshot) => {
       const val = snapshot.val() ?? {};
@@ -105,13 +107,23 @@ export function BoardProvider({ children }) {
         return hasChanges ? next : prev;
       });
     });
+    
     const unsubCursors = onValue(cursorsRef, (snapshot) => {
-      setCursors(snapshot.val() || {});
+      const val = snapshot.val() || {};
+      console.log(`🖱️ Firebase cursors update (${Object.keys(val).length} cursors)`);
+      setCursors(val);
     });
+    
     const unsubPresence = onValue(presenceRef, (snapshot) => {
-      setPresence(snapshot.val() || {});
+      const val = snapshot.val() || {};
+      console.log(`👥 Firebase presence update (${Object.keys(val).length} users online)`);
+      setPresence(val);
     });
+    
+    console.log('✅ Firebase: All listeners active');
+    
     return () => {
+      console.log('🔌 Firebase: Cleaning up listeners');
       unsubObjects();
       unsubCursors();
       unsubPresence();
@@ -178,6 +190,8 @@ export function BoardProvider({ children }) {
       updatedAt: Date.now(),
     };
     
+    console.log(`📝 Creating sticky note ${id} at (${newObj.x}, ${newObj.y})`);
+    
     // Optimistic: add to local state immediately
     setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
     
@@ -185,6 +199,8 @@ export function BoardProvider({ children }) {
     set(ref(database, `boards/${BOARD_ID}/objects/${id}`), {
       ...newObj,
       updatedAt: serverTimestamp(),
+    }).then(() => {
+      console.log(`✅ Sticky note ${id} synced to Firebase`);
     });
     
     return id;
@@ -245,6 +261,8 @@ export function BoardProvider({ children }) {
     
     const currentObj = objectsRef.current[objectId] || {};
     
+    console.log(`✏️ Updating object ${objectId}:`, safePayload);
+    
     // OPTIMISTIC: Update local state immediately for instant UI response
     setOptimisticUpdates((prev) => ({
       ...prev,
@@ -257,12 +275,17 @@ export function BoardProvider({ children }) {
     
     // Then sync to Firebase in the background
     const objRef = ref(database, `boards/${BOARD_ID}/objects/${objectId}`);
+    const startTime = Date.now();
     update(objRef, {
       ...safePayload,
       updatedAt: serverTimestamp(),
-    }).catch((err) => {
-      console.error('Update failed:', err);
-    });
+    })
+      .then(() => {
+        console.log(`✅ Update synced to Firebase (${Date.now() - startTime}ms)`);
+      })
+      .catch((err) => {
+        console.error('❌ Update failed:', err);
+      });
   }, []);
 
   const resizeObject = useCallback((objectId, width, height) => {

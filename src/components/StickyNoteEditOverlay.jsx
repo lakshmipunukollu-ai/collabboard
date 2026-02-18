@@ -38,6 +38,8 @@ export default function StickyNoteEditOverlay() {
     const newText = e.target.value;
     lastTextRef.current = newText;
     
+    console.log(`⌨️ Text input (${newText.length} chars), debouncing Firebase write...`);
+    
     // Clear previous debounce timer
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -45,6 +47,7 @@ export default function StickyNoteEditOverlay() {
     
     // Debounce Firebase write to 300ms after last keystroke
     debounceTimerRef.current = setTimeout(() => {
+      console.log(`📤 Sending text update to Firebase...`);
       updateObject(editingNoteId, { text: newText });
     }, 300);
   }, [editingNoteId, updateObject]);
