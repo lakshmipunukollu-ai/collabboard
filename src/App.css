@@ -1,0 +1,218 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #0f172a;
+  color: #94a3b8;
+}
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #0f172a;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+}
+
+.app-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-name {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+.signout-btn {
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  color: #f1f5f9;
+  background: #334155;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.signout-btn:hover {
+  background: #475569;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 220px;
+  padding: 16px;
+  background: #1e293b;
+  border-right: 1px solid #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toolbar-btn {
+  padding: 10px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #f1f5f9;
+  background: #6366f1;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.toolbar-btn:hover {
+  background: #4f46e5;
+}
+
+.presence-panel {
+  background: #0f172a;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.presence-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.presence-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.presence-item {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.presence-item.you {
+  color: #a5b4fc;
+}
+
+.presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+}
+
+.presence-following {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: #312e81;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: #c7d2fe;
+}
+
+.presence-unfollow {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  color: #e2e8f0;
+  background: #475569;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.presence-unfollow:hover {
+  background: #64748b;
+}
+
+.presence-name {
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.presence-name:hover {
+  color: #a5b4fc;
+  text-decoration: underline;
+}
+
+.presence-name.following {
+  color: #a5b4fc;
+  font-weight: 500;
+}
+
+.canvas-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.canvas-container {
+  position: absolute;
+  inset: 0;
+  background: #1e293b;
+  background-image:
+    radial-gradient(circle at 1px 1px, #334155 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.cursor-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* No custom login screen styles - let Clerk handle everything */
