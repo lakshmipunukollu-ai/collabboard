@@ -22,8 +22,6 @@ import { setSaveStatus } from '../components/AutoSaveIndicator';
 
 const BoardContext = createContext(null);
 
-const BOARD_ID = 'default';
-
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
@@ -34,24 +32,24 @@ function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function logHistory(action, objectId, objectType, userId, displayName) {
-  const timestamp = Date.now();
-  const historyEntry = {
-    action, // 'created', 'updated', 'deleted', 'moved', 'resized'
-    objectId,
-    objectType,
-    userId,
-    displayName,
-    timestamp,
-  };
-  
-  set(ref(database, `boards/${BOARD_ID}/history/${timestamp}`), historyEntry).catch(err => {
-    console.error('Failed to log history:', err);
-  });
-}
-
-export function BoardProvider({ children }) {
+export function BoardProvider({ children, boardId = 'default' }) {
   const { user } = useUser();
+  
+  // Helper to log history with dynamic boardId
+  const logHistory = useCallback((action, objectId, objectType, userId, displayName) => {
+    const timestamp = Date.now();
+    const historyEntry = {
+      action,
+      objectId,
+      objectType,
+      userId,
+      displayName,
+      timestamp,
+    };
+    set(ref(database, `boards/${boardId}/history/${timestamp}`), historyEntry).catch(err => {
+      console.error('Failed to log history:', err);
+    });
+  }, [boardId]);
   const stageRef = useRef(null);
   const [editingNoteId, setEditingNoteId] = useState(null);
   // Firebase state: what the server has
@@ -77,20 +75,20 @@ export function BoardProvider({ children }) {
   objectsRef.current = objects;
 
   // Memoize Firebase refs so they're stable across renders
-  const boardRef = useMemo(() => ref(database, `boards/${BOARD_ID}`), []);
-  const firebaseObjectsRef = useMemo(() => ref(database, `boards/${BOARD_ID}/objects`), []);
-  const cursorsRef = useMemo(() => ref(database, `boards/${BOARD_ID}/cursors`), []);
-  const presenceRef = useMemo(() => ref(database, `boards/${BOARD_ID}/presence`), []);
+  const boardRef = useMemo(() => ref(database, `boards/${boardId}`), [boardId]);
+  const firebaseObjectsRef = useMemo(() => ref(database, `boards/${boardId}/objects`), [boardId]);
+  const cursorsRef = useMemo(() => ref(database, `boards/${boardId}/cursors`), [boardId]);
+  const presenceRef = useMemo(() => ref(database, `boards/${boardId}/presence`), [boardId]);
 
   const cursorRef = useMemo(
-    () => (user ? ref(database, `boards/${BOARD_ID}/cursors/${user.id}`) : null),
-    [user]
+    () => (user ? ref(database, `boards/${boardId}/cursors/${user.id}`) : null),
+    [user, boardId]
   );
   const userPresenceRef = useMemo(
-    () => (user ? ref(database, `boards/${BOARD_ID}/presence/${user.id}`) : null),
-    [user]
+    () => (user ? ref(database, `boards/${boardId}/presence/${user.id}`) : null),
+    [user, boardId]
   );
-  const historyRef = useMemo(() => ref(database, `boards/${BOARD_ID}/history`), []);
+  const historyRef = useMemo(() => ref(database, `boards/${boardId}/history`), [boardId]);
 
   useEffect(() => {
     console.log('🔥 Firebase: Setting up real-time listeners...');
@@ -237,7 +235,7 @@ export function BoardProvider({ children }) {
     
     // Then sync to Firebase
     setSaveStatus('saving');
-    set(ref(database, `boards/${BOARD_ID}/objects/${id}`), {
+    set(ref(database, `boards/${boardId}/objects/${id}`), {
       ...newObj,
       updatedAt: serverTimestamp(),
     })
@@ -280,7 +278,7 @@ export function BoardProvider({ children }) {
     logHistory('created', id, type, user.id, displayName);
     
     // Then sync to Firebase
-    set(ref(database, `boards/${BOARD_ID}/objects/${id}`), {
+    set(ref(database, `boards/${boardId}/objects/${id}`), {
       ...newObj,
       updatedAt: serverTimestamp(),
     }).then(() => {
@@ -321,7 +319,7 @@ export function BoardProvider({ children }) {
     }));
     
     // Then sync to Firebase
-    const objRef = ref(database, `boards/${BOARD_ID}/objects/${objectId}`);
+    const objRef = ref(database, `boards/${boardId}/objects/${objectId}`);
     update(objRef, {
       x: Number(x),
       y: Number(y),
@@ -351,7 +349,7 @@ export function BoardProvider({ children }) {
     
     // Then sync to Firebase in the background
     setSaveStatus('saving');
-    const objRef = ref(database, `boards/${BOARD_ID}/objects/${objectId}`);
+    const objRef = ref(database, `boards/${boardId}/objects/${objectId}`);
     const startTime = Date.now();
     update(objRef, {
       ...safePayload,
@@ -382,7 +380,7 @@ export function BoardProvider({ children }) {
     }));
     
     // Then sync to Firebase
-    const objRef = ref(database, `boards/${BOARD_ID}/objects/${objectId}`);
+    const objRef = ref(database, `boards/${boardId}/objects/${objectId}`);
     update(objRef, {
       width: Number(width),
       height: Number(height),
@@ -423,7 +421,7 @@ export function BoardProvider({ children }) {
     }
     
     // Then sync to Firebase
-    remove(ref(database, `boards/${BOARD_ID}/objects/${objectId}`));
+    remove(ref(database, `boards/${boardId}/objects/${objectId}`));
   }, [user]);
 
   const deleteSelectedObjects = useCallback(() => {
@@ -475,7 +473,7 @@ export function BoardProvider({ children }) {
       setOptimisticUpdates((prev) => ({ ...prev, [newId]: newObj }));
       
       // Then sync to Firebase
-      set(ref(database, `boards/${BOARD_ID}/objects/${newId}`), {
+      set(ref(database, `boards/${boardId}/objects/${newId}`), {
         ...newObj,
         updatedAt: serverTimestamp(),
       });
@@ -519,7 +517,7 @@ export function BoardProvider({ children }) {
       setOptimisticUpdates((prev) => ({ ...prev, [newId]: newObj }));
       
       // Then sync to Firebase
-      set(ref(database, `boards/${BOARD_ID}/objects/${newId}`), {
+      set(ref(database, `boards/${boardId}/objects/${newId}`), {
         ...newObj,
         updatedAt: serverTimestamp(),
       });

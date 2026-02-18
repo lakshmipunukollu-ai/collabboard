@@ -6,7 +6,7 @@ export default function ZoomControls({ scale, onZoomChange, onFitAll }) {
       style={{
         position: 'fixed',
         bottom: 80,
-        right: 20,
+        left: 20,
         background: 'rgba(15, 23, 42, 0.95)',
         border: '1px solid rgba(255,255,255,0.1)',
         borderRadius: 12,

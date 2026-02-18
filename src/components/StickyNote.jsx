@@ -48,7 +48,7 @@ export default function StickyNote({ id, data }) {
       transformerRef.current.nodes([groupRef.current]);
       transformerRef.current.getLayer()?.batchDraw();
     }
-  }, [isSelected]);
+  }, [isSelected, width, height]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
