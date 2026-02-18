@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Stage, Layer } from 'react-konva';
+import { Stage, Layer, Rect } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
 import StickyNote from './StickyNote';
 import BoardShape from './BoardShape';
 import CursorOverlay from './CursorOverlay';
 import StickyNoteEditOverlay from './StickyNoteEditOverlay';
+import ModeIndicator from './ModeIndicator';
+import ZoomControls from './ZoomControls';
 import ErrorBoundary from './ErrorBoundary';
+import { showToast } from './Toast';
 
 const MIN_SCALE = 0.001; // Nearly infinite zoom out
 const MAX_SCALE = 4;
@@ -20,8 +23,10 @@ export default function Canvas() {
     followUserId,
     setFollowUserId,
     selectedIds,
+    setSelectedIds,
     clearSelection,
     deleteSelectedObjects,
+    deleteObject,
     duplicateSelectedObjects,
     copySelectedObjects,
     pasteObjects,
@@ -32,8 +37,11 @@ export default function Canvas() {
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionBox, setSelectionBox] = useState(null);
   const lastPointerRef = useRef(null);
   const cursorPosRef = useRef(null);
+  const selectionStartRef = useRef(null);
 
   const handleResize = useCallback(() => {
     if (!containerRef.current) return;
@@ -52,7 +60,73 @@ export default function Canvas() {
     return () => window.removeEventListener('resize', handleResize);
   }, [handleResize, setOnline]);
 
-  // Global keyboard handlers for selection operations
+  // Zoom to specific scale, centered on viewport
+  const zoomToScale = useCallback((targetScale) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    
+    const oldScale = stage.scaleX();
+    const centerX = dimensions.width / 2;
+    const centerY = dimensions.height / 2;
+    
+    // Calculate the board point that's currently at center
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    const centerPoint = transform.point({ x: centerX, y: centerY });
+    
+    // Calculate new position to keep that board point at center
+    const newPos = {
+      x: centerX - centerPoint.x * targetScale,
+      y: centerY - centerPoint.y * targetScale,
+    };
+    
+    setScale(targetScale);
+    setStagePos(newPos);
+    showToast(`🔍 Zoom: ${Math.round(targetScale * 100)}%`, 'info');
+  }, [dimensions.width, dimensions.height]);
+
+  // Fit all objects in view
+  const fitAllObjects = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage || Object.keys(objects).length === 0) {
+      showToast('ℹ️ No objects to fit', 'info');
+      return;
+    }
+    
+    // Calculate bounding box of all objects
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    Object.values(objects).forEach(obj => {
+      const { x = 0, y = 0, width = 100, height = 100 } = obj;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + width);
+      maxY = Math.max(maxY, y + height);
+    });
+    
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+    const padding = 100;
+    
+    // Calculate scale to fit content with padding
+    const scaleX = (dimensions.width - padding * 2) / contentWidth;
+    const scaleY = (dimensions.height - padding * 2) / contentHeight;
+    const newScale = Math.min(scaleX, scaleY, MAX_SCALE);
+    
+    // Center the content
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    const newPos = {
+      x: dimensions.width / 2 - centerX * newScale,
+      y: dimensions.height / 2 - centerY * newScale,
+    };
+    
+    setScale(newScale);
+    setStagePos(newPos);
+    showToast(`🔍 Fit ${Object.keys(objects).length} objects`, 'success');
+  }, [objects, dimensions.width, dimensions.height]);
+
+  // Global keyboard handlers for selection operations and zoom
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Don't handle shortcuts if user is editing text
@@ -61,37 +135,93 @@ export default function Canvas() {
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
       
+      // Zoom shortcuts (number keys)
+      if (e.key === '1' && !cmdOrCtrl) {
+        e.preventDefault();
+        zoomToScale(1); // 100%
+        return;
+      }
+      if (e.key === '2' && !cmdOrCtrl) {
+        e.preventDefault();
+        zoomToScale(2); // 200%
+        return;
+      }
+      if (e.key === '0' && !cmdOrCtrl) {
+        e.preventDefault();
+        fitAllObjects();
+        return;
+      }
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        const newScale = Math.min(MAX_SCALE, scale * 1.25);
+        zoomToScale(newScale);
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        const newScale = Math.max(MIN_SCALE, scale / 1.25);
+        zoomToScale(newScale);
+        return;
+      }
+      
       // Delete selected objects
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
         e.preventDefault();
+        const count = selectedIds.size;
         deleteSelectedObjects();
+        showToast(`🗑️ Deleted ${count} object${count > 1 ? 's' : ''}`, 'info');
       }
       
       // Duplicate: Cmd/Ctrl+D
       if (cmdOrCtrl && e.key === 'd' && selectedIds.size > 0) {
         e.preventDefault();
         duplicateSelectedObjects();
+        showToast(`📋 Duplicated ${selectedIds.size} object${selectedIds.size > 1 ? 's' : ''}`, 'success');
       }
       
       // Copy: Cmd/Ctrl+C
       if (cmdOrCtrl && e.key === 'c' && selectedIds.size > 0) {
         e.preventDefault();
         copySelectedObjects();
+        showToast(`📋 Copied ${selectedIds.size} object${selectedIds.size > 1 ? 's' : ''}`, 'info');
       }
       
       // Paste: Cmd/Ctrl+V
       if (cmdOrCtrl && e.key === 'v') {
         e.preventDefault();
         pasteObjects();
+        showToast('📋 Pasted objects', 'success');
+      }
+      
+      // Select All: Cmd/Ctrl+A
+      if (cmdOrCtrl && e.key === 'a') {
+        e.preventDefault();
+        const allIds = new Set(Object.keys(objects));
+        setSelectedIds(allIds);
+        showToast(`✓ Selected all ${allIds.size} objects`, 'info');
+      }
+      
+      // Clear Board: Cmd/Ctrl+Shift+Delete
+      if (cmdOrCtrl && e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        const count = Object.keys(objects).length;
+        if (count === 0) {
+          showToast('ℹ️ Board is already empty', 'info');
+          return;
+        }
+        if (window.confirm(`Delete all ${count} objects? This cannot be undone.`)) {
+          Object.keys(objects).forEach(id => deleteObject(id));
+          showToast(`🗑️ Cleared ${count} objects`, 'success');
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId]);
+  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId, scale, zoomToScale, fitAllObjects, objects, deleteObject]);
 
   const handleWheel = useCallback((e) => {
     e.evt.preventDefault();
-    const scaleBy = 1.05;
+    const scaleBy = 1.1; // Increased from 1.05 to 1.1 for 2x faster zooming
     const stage = stageRef.current;
     if (!stage) return;
     const oldScale = stage.scaleX();
@@ -116,10 +246,23 @@ export default function Canvas() {
   const handlePointerDown = useCallback(
     (e) => {
       if (e.target === e.target.getStage()) {
-        setIsDragging(true);
         setFollowUserId(null);
-        clearSelection(); // Clear selection when clicking on stage
-        lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
+        
+        // Shift+drag = area selection
+        if (e.evt.shiftKey) {
+          setIsSelecting(true);
+          const stage = stageRef.current;
+          if (stage) {
+            const pos = stage.getPointerPosition();
+            selectionStartRef.current = pos;
+            setSelectionBox({ x: pos.x, y: pos.y, width: 0, height: 0 });
+          }
+        } else {
+          // Regular drag = pan
+          setIsDragging(true);
+          clearSelection();
+          lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
+        }
       }
     },
     [setFollowUserId, clearSelection]
@@ -148,6 +291,17 @@ export default function Canvas() {
         const boardPoint = transform.point(pos);
         cursorPosRef.current = { x: boardPoint.x, y: boardPoint.y };
       }
+      
+      // Area selection
+      if (isSelecting && selectionStartRef.current && pos) {
+        const x = Math.min(selectionStartRef.current.x, pos.x);
+        const y = Math.min(selectionStartRef.current.y, pos.y);
+        const width = Math.abs(pos.x - selectionStartRef.current.x);
+        const height = Math.abs(pos.y - selectionStartRef.current.y);
+        setSelectionBox({ x, y, width, height });
+      }
+      
+      // Pan canvas
       if (isDragging && lastPointerRef.current) {
         const dx = e.evt.clientX - lastPointerRef.current.x;
         const dy = e.evt.clientY - lastPointerRef.current.y;
@@ -156,13 +310,49 @@ export default function Canvas() {
         lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
       }
     },
-    [isDragging, stagePos]
+    [isDragging, stagePos, isSelecting]
   );
 
   const handlePointerUp = useCallback(() => {
+    // Complete area selection
+    if (isSelecting && selectionBox) {
+      const stage = stageRef.current;
+      if (stage && selectionBox.width > 5 && selectionBox.height > 5) {
+        // Convert screen selection box to board coordinates
+        const transform = stage.getAbsoluteTransform().copy().invert();
+        const topLeft = transform.point({ x: selectionBox.x, y: selectionBox.y });
+        const bottomRight = transform.point({ 
+          x: selectionBox.x + selectionBox.width, 
+          y: selectionBox.y + selectionBox.height 
+        });
+        
+        // Find all objects intersecting the selection box
+        const selected = new Set();
+        Object.entries(objects).forEach(([id, obj]) => {
+          const { x = 0, y = 0, width = 100, height = 100 } = obj;
+          const objRight = x + width;
+          const objBottom = y + height;
+          
+          // Check intersection
+          if (x < bottomRight.x && objRight > topLeft.x &&
+              y < bottomRight.y && objBottom > topLeft.y) {
+            selected.add(id);
+          }
+        });
+        
+        setSelectedIds(selected);
+        if (selected.size > 0) {
+          showToast(`✓ Selected ${selected.size} object${selected.size > 1 ? 's' : ''}`, 'success');
+        }
+      }
+      setIsSelecting(false);
+      setSelectionBox(null);
+      selectionStartRef.current = null;
+    }
+    
     setIsDragging(false);
     lastPointerRef.current = null;
-  }, []);
+  }, [isSelecting, selectionBox, objects]);
 
   // When following a user, pan the stage so their cursor stays centered
   useEffect(() => {
@@ -178,10 +368,39 @@ export default function Canvas() {
     setStagePos(newPos);
   }, [followUserId, cursors, scale, dimensions.width, dimensions.height, isDragging]);
 
-  const stickyNotes = Object.entries(objects).filter(([, obj]) => obj.type === 'sticky');
-  const shapes = Object.entries(objects).filter(([, obj]) => 
-    obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line'
+  // Viewport culling: only render objects within visible area (with padding)
+  const getVisibleObjects = useCallback((allObjects) => {
+    const stage = stageRef.current;
+    if (!stage) return Object.entries(allObjects);
+    
+    // Calculate visible board area in world coordinates
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    const padding = 200; // Render objects slightly outside viewport for smooth scrolling
+    const topLeft = transform.point({ x: -padding, y: -padding });
+    const bottomRight = transform.point({ 
+      x: dimensions.width + padding, 
+      y: dimensions.height + padding 
+    });
+    
+    return Object.entries(allObjects).filter(([, obj]) => {
+      const { x = 0, y = 0, width = 100, height = 100 } = obj;
+      const objRight = x + width;
+      const objBottom = y + height;
+      
+      // Check if object intersects viewport
+      return x < bottomRight.x && objRight > topLeft.x &&
+             y < bottomRight.y && objBottom > topLeft.y;
+    });
+  }, [dimensions.width, dimensions.height]);
+
+  const visibleObjects = getVisibleObjects(objects);
+  const stickyNotes = visibleObjects.filter(([, obj]) => obj.type === 'sticky');
+  const shapes = visibleObjects.filter(([, obj]) => 
+    obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'oval'
   );
+  
+  const totalCount = Object.keys(objects).length;
+  const visibleCount = visibleObjects.length;
 
   return (
     <div ref={containerRef} className="canvas-container" id="canvas-overlay-root">
@@ -201,7 +420,7 @@ export default function Canvas() {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         draggable={false}
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: isSelecting ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
       >
         <Layer>
           {stickyNotes.map(([id, obj]) => (
@@ -210,8 +429,33 @@ export default function Canvas() {
           {shapes.map(([id, obj]) => (
             <BoardShape key={id} id={id} data={obj} />
           ))}
+          {/* Selection box overlay */}
+          {isSelecting && selectionBox && (
+            <Rect
+              x={selectionBox.x}
+              y={selectionBox.y}
+              width={selectionBox.width}
+              height={selectionBox.height}
+              fill="rgba(59, 130, 246, 0.1)"
+              stroke="#3B82F6"
+              strokeWidth={2 / scale}
+              dash={[10 / scale, 5 / scale]}
+              listening={false}
+            />
+          )}
         </Layer>
       </Stage>
+      <ZoomControls 
+        scale={scale} 
+        onZoomChange={zoomToScale} 
+        onFitAll={fitAllObjects}
+      />
+      <ModeIndicator 
+        isDragging={isDragging} 
+        scale={scale}
+        totalObjects={totalCount}
+        visibleObjects={visibleCount}
+      />
       <CursorOverlay stageRef={stageRef} scale={scale} stagePos={stagePos} />
       <ErrorBoundary>
         <StickyNoteEditOverlay />

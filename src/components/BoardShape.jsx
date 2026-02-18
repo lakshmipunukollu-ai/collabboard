@@ -1,15 +1,42 @@
 import { useState, useEffect, useRef } from 'react';
-import { Group, Rect, Circle, Line, Transformer } from 'react-konva';
+import { Group, Rect, Circle, Line, Ellipse, Transformer } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
+import { useUser } from '@clerk/clerk-react';
+import { showToast } from './Toast';
 
 export default function BoardShape({ id, data }) {
-  const { moveObject, deleteObject, resizeObject, selectedIds, toggleSelection } = useBoard();
+  const { 
+    moveObject, 
+    deleteObject, 
+    resizeObject, 
+    selectedIds, 
+    toggleSelection,
+    activeEdits,
+    startEditing,
+    stopEditing,
+    presence,
+  } = useBoard();
+  const { user } = useUser();
   const [isDragging, setIsDragging] = useState(false);
   const isSelected = selectedIds.has(id);
   const groupRef = useRef(null);
   const transformerRef = useRef(null);
+  const dragThrottleRef = useRef(null);
+  const lastDragPosRef = useRef({ x: 0, y: 0 });
+  
+  // Check if someone else is editing this object
+  const activeEdit = activeEdits[id];
+  const isBeingEditedByOther = activeEdit && activeEdit.userId !== user?.id;
 
-  const { type = 'rectangle', x, y, width = 100, height = 80, color = '#6366F1' } = data;
+  const { 
+    type = 'rectangle', 
+    x, 
+    y, 
+    width = 100, 
+    height = 80, 
+    color = '#6366F1',
+    opacity = 0.9,
+  } = data;
 
   // Attach transformer to this group when selected
   useEffect(() => {
@@ -33,13 +60,47 @@ export default function BoardShape({ id, data }) {
     }
   }, [isSelected, id, deleteObject]);
 
+  const handleDragStart = () => {
+    if (isBeingEditedByOther) {
+      const editorName = presence[activeEdit.userId]?.displayName || 'Another user';
+      showToast(`⚠️ ${editorName} is editing this`, 'warning');
+    }
+    setIsDragging(true);
+    startEditing(id);
+  };
+
+  const handleDragMove = (e) => {
+    const newX = e.target.x();
+    const newY = e.target.y();
+    lastDragPosRef.current = { x: newX, y: newY };
+    
+    // Throttle Firebase writes to every 50ms during drag
+    if (!dragThrottleRef.current) {
+      dragThrottleRef.current = setTimeout(() => {
+        moveObject(id, lastDragPosRef.current.x, lastDragPosRef.current.y);
+        dragThrottleRef.current = null;
+      }, 50);
+    }
+  };
+
   const handleDragEnd = (e) => {
+    // Clear any pending throttled update
+    if (dragThrottleRef.current) {
+      clearTimeout(dragThrottleRef.current);
+      dragThrottleRef.current = null;
+    }
+    // Final position update
     moveObject(id, e.target.x(), e.target.y());
     setIsDragging(false);
+    stopEditing(id);
   };
 
   const handleClick = (e) => {
     toggleSelection(id, e.evt.shiftKey);
+  };
+
+  const handleTransformStart = () => {
+    startEditing(id);
   };
 
   const handleTransformEnd = () => {
@@ -61,9 +122,17 @@ export default function BoardShape({ id, data }) {
     
     // Also update position if node was moved
     moveObject(id, node.x(), node.y());
+    
+    stopEditing(id);
   };
 
   const renderShape = () => {
+    const getStroke = () => {
+      if (isBeingEditedByOther) return '#F59E0B';
+      if (isSelected) return '#3B82F6';
+      return '#4F46E5';
+    };
+
     switch (type) {
       case 'circle':
         const radius = Math.min(width, height) / 2;
@@ -73,19 +142,43 @@ export default function BoardShape({ id, data }) {
             y={height / 2}
             radius={radius}
             fill={color}
-            stroke={isSelected ? "#3B82F6" : "#4F46E5"}
-            strokeWidth={isSelected ? 4 : 2}
+            stroke={getStroke()}
+            strokeWidth={isBeingEditedByOther ? 3 : isSelected ? 4 : 2}
+            dash={isBeingEditedByOther ? [10, 5] : undefined}
+            shadowColor={isSelected ? "rgba(59, 130, 246, 0.6)" : "rgba(0,0,0,0.2)"}
+            shadowBlur={isSelected ? 20 : 8}
+            shadowOffset={{ x: 2, y: 2 }}
             opacity={0.9}
+          />
+        );
+      case 'oval':
+        return (
+          <Ellipse
+            x={width / 2}
+            y={height / 2}
+            radiusX={width / 2}
+            radiusY={height / 2}
+            fill={color}
+            stroke={getStroke()}
+            strokeWidth={isBeingEditedByOther ? 3 : isSelected ? 4 : 2}
+            dash={isBeingEditedByOther ? [10, 5] : undefined}
+            shadowColor={isSelected ? "rgba(59, 130, 246, 0.6)" : "rgba(0,0,0,0.2)"}
+            shadowBlur={isSelected ? 20 : 8}
+            shadowOffset={{ x: 2, y: 2 }}
+            opacity={opacity}
           />
         );
       case 'line':
         return (
           <Line
             points={[0, height / 2, width, height / 2]}
-            stroke={color}
-            strokeWidth={isSelected ? 6 : 4}
+            stroke={isBeingEditedByOther ? '#F59E0B' : isSelected ? "#3B82F6" : color}
+            strokeWidth={isBeingEditedByOther ? 5 : isSelected ? 6 : 4}
+            dash={isBeingEditedByOther ? [10, 5] : undefined}
             lineCap="round"
             lineJoin="round"
+            shadowColor={isSelected ? "rgba(59, 130, 246, 0.6)" : "rgba(0,0,0,0.2)"}
+            shadowBlur={isSelected ? 15 : 5}
           />
         );
       case 'rectangle':
@@ -95,10 +188,14 @@ export default function BoardShape({ id, data }) {
             width={width}
             height={height}
             fill={color}
-            stroke={isSelected ? "#3B82F6" : "#4F46E5"}
-            strokeWidth={isSelected ? 4 : 2}
+            stroke={getStroke()}
+            strokeWidth={isBeingEditedByOther ? 3 : isSelected ? 4 : 2}
+            dash={isBeingEditedByOther ? [10, 5] : undefined}
             cornerRadius={4}
-            opacity={0.9}
+            shadowColor={isSelected ? "rgba(59, 130, 246, 0.6)" : "rgba(0,0,0,0.2)"}
+            shadowBlur={isSelected ? 20 : 8}
+            shadowOffset={{ x: 2, y: 2 }}
+            opacity={opacity}
           />
         );
     }
@@ -111,9 +208,11 @@ export default function BoardShape({ id, data }) {
         x={x}
         y={y}
         draggable
-        onDragStart={() => setIsDragging(true)}
+        onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onClick={handleClick}
+        onTransformStart={handleTransformStart}
         onTransformEnd={handleTransformEnd}
       >
         {renderShape()}

@@ -18,6 +18,7 @@ import {
   onDisconnect,
 } from 'firebase/database';
 import { database } from '../lib/firebase';
+import { setSaveStatus } from '../components/AutoSaveIndicator';
 
 const BoardContext = createContext(null);
 
@@ -33,6 +34,22 @@ function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function logHistory(action, objectId, objectType, userId, displayName) {
+  const timestamp = Date.now();
+  const historyEntry = {
+    action, // 'created', 'updated', 'deleted', 'moved', 'resized'
+    objectId,
+    objectType,
+    userId,
+    displayName,
+    timestamp,
+  };
+  
+  set(ref(database, `boards/${BOARD_ID}/history/${timestamp}`), historyEntry).catch(err => {
+    console.error('Failed to log history:', err);
+  });
+}
+
 export function BoardProvider({ children }) {
   const { user } = useUser();
   const stageRef = useRef(null);
@@ -45,6 +62,9 @@ export function BoardProvider({ children }) {
   const [presence, setPresence] = useState({});
   const [followUserId, setFollowUserId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  // Track which objects are being edited by which user
+  const [activeEdits, setActiveEdits] = useState({}); // { objectId: { userId, timestamp } }
+  const [history, setHistory] = useState([]); // Change history
 
   // Merge Firebase state with optimistic updates
   // Firebase always wins when it has an object; optimistic only for pending creates
@@ -70,6 +90,7 @@ export function BoardProvider({ children }) {
     () => (user ? ref(database, `boards/${BOARD_ID}/presence/${user.id}`) : null),
     [user]
   );
+  const historyRef = useMemo(() => ref(database, `boards/${BOARD_ID}/history`), []);
 
   useEffect(() => {
     console.log('🔥 Firebase: Setting up real-time listeners...');
@@ -120,6 +141,15 @@ export function BoardProvider({ children }) {
       setPresence(val);
     });
     
+    const unsubHistory = onValue(historyRef, (snapshot) => {
+      const val = snapshot.val() || {};
+      const historyArray = Object.entries(val)
+        .map(([timestamp, entry]) => ({ ...entry, timestamp: Number(timestamp) }))
+        .sort((a, b) => b.timestamp - a.timestamp) // Most recent first
+        .slice(0, 500); // Keep last 500 entries
+      setHistory(historyArray);
+    });
+    
     console.log('✅ Firebase: All listeners active');
     
     return () => {
@@ -127,8 +157,9 @@ export function BoardProvider({ children }) {
       unsubObjects();
       unsubCursors();
       unsubPresence();
+      unsubHistory();
     };
-  }, [firebaseObjectsRef, cursorsRef, presenceRef]); // Refs are memoized so this only runs once
+  }, [firebaseObjectsRef, cursorsRef, presenceRef, historyRef]); // Refs are memoized so this only runs once
 
   useEffect(() => {
     if (!user) return;
@@ -177,6 +208,8 @@ export function BoardProvider({ children }) {
   }, [user, userPresenceRef, cursorRef]);
 
   const createStickyNote = useCallback((text, x, y, color = '#FEF08A', width = 160, height = 120) => {
+    if (!user) return null;
+    
     const id = generateId();
     const safeText = escapeHtml(String(text || 'New note'));
     const newObj = {
@@ -195,18 +228,34 @@ export function BoardProvider({ children }) {
     // Optimistic: add to local state immediately
     setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
     
+    // Auto-select the newly created object
+    setSelectedIds(new Set([id]));
+    
+    // Log to history
+    const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
+    logHistory('created', id, 'sticky note', user.id, displayName);
+    
     // Then sync to Firebase
+    setSaveStatus('saving');
     set(ref(database, `boards/${BOARD_ID}/objects/${id}`), {
       ...newObj,
       updatedAt: serverTimestamp(),
-    }).then(() => {
-      console.log(`✅ Sticky note ${id} synced to Firebase`);
-    });
+    })
+      .then(() => {
+        console.log(`✅ Sticky note ${id} synced to Firebase`);
+        setSaveStatus('saved');
+      })
+      .catch((err) => {
+        console.error('❌ Failed to create sticky note:', err);
+        setSaveStatus('error');
+      });
     
     return id;
-  }, []);
+  }, [user]);
 
   const createShape = useCallback((type, x, y, width, height, color = '#6366F1') => {
+    if (!user) return null;
+    
     const id = generateId();
     const newObj = {
       type: type || 'rectangle',
@@ -218,16 +267,43 @@ export function BoardProvider({ children }) {
       updatedAt: Date.now(),
     };
     
+    console.log(`🔷 Creating ${type} ${id} at (${newObj.x}, ${newObj.y})`);
+    
     // Optimistic: add to local state immediately
     setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    
+    // Auto-select the newly created object
+    setSelectedIds(new Set([id]));
+    
+    // Log to history
+    const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
+    logHistory('created', id, type, user.id, displayName);
     
     // Then sync to Firebase
     set(ref(database, `boards/${BOARD_ID}/objects/${id}`), {
       ...newObj,
       updatedAt: serverTimestamp(),
+    }).then(() => {
+      console.log(`✅ ${type} ${id} synced to Firebase`);
     });
     
     return id;
+  }, [user]);
+
+  const startEditing = useCallback((objectId) => {
+    if (!user) return;
+    setActiveEdits((prev) => ({
+      ...prev,
+      [objectId]: { userId: user.id, timestamp: Date.now() },
+    }));
+  }, [user]);
+
+  const stopEditing = useCallback((objectId) => {
+    setActiveEdits((prev) => {
+      const next = { ...prev };
+      delete next[objectId];
+      return next;
+    });
   }, []);
 
   const moveObject = useCallback((objectId, x, y) => {
@@ -274,6 +350,7 @@ export function BoardProvider({ children }) {
     }));
     
     // Then sync to Firebase in the background
+    setSaveStatus('saving');
     const objRef = ref(database, `boards/${BOARD_ID}/objects/${objectId}`);
     const startTime = Date.now();
     update(objRef, {
@@ -282,9 +359,11 @@ export function BoardProvider({ children }) {
     })
       .then(() => {
         console.log(`✅ Update synced to Firebase (${Date.now() - startTime}ms)`);
+        setSaveStatus('saved');
       })
       .catch((err) => {
         console.error('❌ Update failed:', err);
+        setSaveStatus('error');
       });
   }, []);
 
@@ -312,6 +391,10 @@ export function BoardProvider({ children }) {
   }, []);
 
   const deleteObject = useCallback((objectId) => {
+    if (!user) return;
+    
+    const obj = objectsRef.current[objectId];
+    
     // Optimistic: remove from local state immediately
     setOptimisticUpdates((prev) => {
       const next = { ...prev };
@@ -333,9 +416,15 @@ export function BoardProvider({ children }) {
       return next;
     });
     
+    // Log to history
+    if (obj) {
+      const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
+      logHistory('deleted', objectId, obj.type, user.id, displayName);
+    }
+    
     // Then sync to Firebase
     remove(ref(database, `boards/${BOARD_ID}/objects/${objectId}`));
-  }, []);
+  }, [user]);
 
   const deleteSelectedObjects = useCallback(() => {
     selectedIds.forEach((id) => {
@@ -452,6 +541,7 @@ export function BoardProvider({ children }) {
     followUserId,
     setFollowUserId,
     selectedIds,
+    setSelectedIds,
     toggleSelection,
     clearSelection,
     deleteSelectedObjects,
@@ -466,6 +556,10 @@ export function BoardProvider({ children }) {
     deleteObject,
     updateCursor,
     setOnline,
+    activeEdits,
+    startEditing,
+    stopEditing,
+    history,
   };
 
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;

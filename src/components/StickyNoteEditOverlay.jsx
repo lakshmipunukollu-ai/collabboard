@@ -83,7 +83,17 @@ export default function StickyNoteEditOverlay() {
   const stage = stageRef.current;
   if (!stage) return null;
 
-  const { x = 0, y = 0, width = 160, height = 120, text = '', color = '#FEF08A' } = note;
+  const { 
+    x = 0, 
+    y = 0, 
+    width = 160, 
+    height = 120, 
+    text = '', 
+    color = '#FEF08A',
+    textColor = '#374151',
+    fontFamily = 'Inter',
+    fontSize = 14,
+  } = note;
   
   const stageX = stage.x() || 0;
   const stageY = stage.y() || 0;
@@ -113,11 +123,11 @@ export default function StickyNoteEditOverlay() {
           outline: '1px solid rgba(0,0,0,0.1)',
           borderRadius: 4,
           padding: 4,
-          fontSize: 14,
-          fontFamily: 'Inter, sans-serif',
+          fontSize: fontSize,
+          fontFamily: `${fontFamily}, sans-serif`,
           resize: 'none',
           background: color,
-          color: '#374151',
+          color: textColor,
           zIndex: 1000,
           boxSizing: 'border-box',
         }}

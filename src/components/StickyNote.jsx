@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Group, Rect, Text, Transformer } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
+import { useUser } from '@clerk/clerk-react';
+import { showToast } from './Toast';
 
 export default function StickyNote({ id, data }) {
   const { 
@@ -11,13 +13,34 @@ export default function StickyNote({ id, data }) {
     resizeObject,
     selectedIds,
     toggleSelection,
+    activeEdits,
+    startEditing,
+    stopEditing,
+    presence,
   } = useBoard();
+  const { user } = useUser();
   const [isDragging, setIsDragging] = useState(false);
   const isSelected = selectedIds.has(id);
   const groupRef = useRef(null);
   const transformerRef = useRef(null);
+  const dragThrottleRef = useRef(null);
+  const lastDragPosRef = useRef({ x: 0, y: 0 });
+  
+  // Check if someone else is editing this object
+  const activeEdit = activeEdits[id];
+  const isBeingEditedByOther = activeEdit && activeEdit.userId !== user?.id;
 
-  const { x, y, width = 160, height = 120, color = '#FEF08A', text = '' } = data;
+  const { 
+    x, 
+    y, 
+    width = 160, 
+    height = 120, 
+    color = '#FEF08A', 
+    text = '',
+    textColor = '#374151',
+    fontFamily = 'Inter',
+    fontSize = 14,
+  } = data;
 
   // Attach transformer to this group when selected
   useEffect(() => {
@@ -43,19 +66,61 @@ export default function StickyNote({ id, data }) {
     }
   }, [isSelected, id, deleteObject, editingNoteId]);
 
-  const handleDragEnd = (e) => {
-    moveObject(id, e.target.x(), e.target.y());
-    setIsDragging(false);
+  const handleDragStart = () => {
+    if (isBeingEditedByOther) {
+      const editorName = presence[activeEdit.userId]?.displayName || 'Another user';
+      showToast(`⚠️ ${editorName} is editing this`, 'warning');
+    }
+    setIsDragging(true);
+    startEditing(id);
   };
 
-  const handleDblClick = (e) => {
-    e.cancelBubble = true;
-    setEditingNoteId(id);
+  const handleDragMove = (e) => {
+    const newX = e.target.x();
+    const newY = e.target.y();
+    lastDragPosRef.current = { x: newX, y: newY };
+    
+    // Throttle Firebase writes to every 50ms during drag
+    if (!dragThrottleRef.current) {
+      dragThrottleRef.current = setTimeout(() => {
+        moveObject(id, lastDragPosRef.current.x, lastDragPosRef.current.y);
+        dragThrottleRef.current = null;
+      }, 50);
+    }
+  };
+
+  const handleDragEnd = (e) => {
+    // Clear any pending throttled update
+    if (dragThrottleRef.current) {
+      clearTimeout(dragThrottleRef.current);
+      dragThrottleRef.current = null;
+    }
+    // Final position update
+    moveObject(id, e.target.x(), e.target.y());
+    setIsDragging(false);
+    stopEditing(id);
   };
 
   const handleClick = (e) => {
-    if (editingNoteId === id) return; // don't toggle selection while editing
-    toggleSelection(id, e.evt.shiftKey);
+    // If already editing, do nothing
+    if (editingNoteId === id) return;
+    
+    // If shift-clicking, toggle selection only (don't start editing)
+    if (e.evt.shiftKey) {
+      toggleSelection(id, true);
+      return;
+    }
+    
+    // Single click: select AND start editing immediately
+    toggleSelection(id, false);
+    // Small delay to ensure selection state updates first
+    setTimeout(() => {
+      setEditingNoteId(id);
+    }, 0);
+  };
+
+  const handleTransformStart = () => {
+    startEditing(id);
   };
 
   const handleTransformEnd = () => {
@@ -77,6 +142,8 @@ export default function StickyNote({ id, data }) {
     
     // Also update position if node was moved
     moveObject(id, node.x(), node.y());
+    
+    stopEditing(id);
   };
 
   return (
@@ -86,22 +153,24 @@ export default function StickyNote({ id, data }) {
         x={x}
         y={y}
         draggable
-        onDragStart={() => setIsDragging(true)}
+        onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onClick={handleClick}
-        onDblClick={handleDblClick}
+        onTransformStart={handleTransformStart}
         onTransformEnd={handleTransformEnd}
       >
         <Rect
           width={width}
           height={height}
           fill={color}
-          shadowColor="rgba(0,0,0,0.2)"
-          shadowBlur={8}
+          shadowColor={isSelected ? "rgba(59, 130, 246, 0.6)" : "rgba(0,0,0,0.2)"}
+          shadowBlur={isSelected ? 20 : 8}
           shadowOffset={{ x: 2, y: 2 }}
           cornerRadius={4}
-          stroke={isSelected ? '#3B82F6' : '#E5E7EB'}
-          strokeWidth={isSelected ? 4 : 1}
+          stroke={isBeingEditedByOther ? '#F59E0B' : isSelected ? '#3B82F6' : '#E5E7EB'}
+          strokeWidth={isBeingEditedByOther ? 3 : isSelected ? 4 : 1}
+          dash={isBeingEditedByOther ? [10, 5] : undefined}
         />
         <Text
           text={text || 'Double-click to edit'}
@@ -109,9 +178,9 @@ export default function StickyNote({ id, data }) {
           y={8}
           width={width - 16}
           height={height - 16}
-          fontSize={14}
-          fontFamily="Inter, sans-serif"
-          fill="#374151"
+          fontSize={fontSize}
+          fontFamily={`${fontFamily}, sans-serif`}
+          fill={textColor}
           wrap="word"
           listening={false}
         />

@@ -6,6 +6,11 @@ import PresencePanel from './components/PresencePanel';
 import SignInPage from './components/SignInPage';
 import SignUpPage from './components/SignUpPage';
 import ConnectionStatus from './components/ConnectionStatus';
+import Toast from './components/Toast';
+import HelpPanel from './components/HelpPanel';
+import AutoSaveIndicator from './components/AutoSaveIndicator';
+import EnhancedPresence from './components/EnhancedPresence';
+import PropertiesPanel from './components/PropertiesPanel';
 import './App.css';
 
 function BoardLayout() {
@@ -23,9 +28,13 @@ function BoardLayout() {
   return (
     <div className="app-layout">
       <ConnectionStatus />
+      <Toast />
+      <HelpPanel />
       <header className="app-header">
         <h1 className="app-title">CollabBoard</h1>
         <div className="header-actions">
+          <AutoSaveIndicator />
+          <EnhancedPresence />
           <span className="user-name">
             {user?.firstName || user?.emailAddresses[0]?.emailAddress || 'User'}
           </span>
@@ -45,6 +54,7 @@ function BoardLayout() {
         </aside>
         <main className="canvas-wrapper">
           <Canvas />
+          <PropertiesPanel />
         </main>
       </div>
     </div>

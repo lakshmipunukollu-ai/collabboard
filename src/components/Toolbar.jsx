@@ -1,5 +1,8 @@
 import { useCallback } from 'react';
 import { useBoard } from '../context/BoardContext';
+import { showToast } from './Toast';
+import ClearBoardButton from './ClearBoardButton';
+import HistoryPanel from './HistoryPanel';
 
 const STICKY_COLORS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FECACA', '#FDE68A'];
 
@@ -22,11 +25,15 @@ export default function Toolbar() {
     const scale = stage ? stage.scaleX() : 1;
     // Ensure object appears at minimum 150px on screen
     const minScreenSize = 150;
-    const minScaleFactor = minScreenSize / baseSize;
-    // Scale objects inversely to zoom - more zoomed out = bigger objects
-    // Ensure at least minScaleFactor, cap at 20x to prevent massive objects
-    const scaleFactor = Math.max(minScaleFactor, Math.min(1 / scale, 20));
-    return scaleFactor;
+    
+    // Calculate world size needed to achieve minScreenSize on screen
+    // screenSize = worldSize * scale
+    // So: worldSize = screenSize / scale
+    const minWorldSize = minScreenSize / scale;
+    const scaleFactor = Math.max(1, minWorldSize / baseSize);
+    
+    // Cap at 200x to prevent absurdly massive objects
+    return Math.min(scaleFactor, 200);
   }, [stageRef]);
 
   const handleAddSticky = useCallback(() => {
@@ -38,6 +45,7 @@ export default function Toolbar() {
     const height = baseHeight * scaleFactor;
     const color = STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
     createStickyNote('New note', x - width / 2, y - height / 2, color, width, height);
+    showToast('📝 Sticky note created', 'success');
   }, [createStickyNote, getBoardCenter, getScaledSize]);
 
   const handleAddRectangle = useCallback(() => {
@@ -48,6 +56,7 @@ export default function Toolbar() {
     const width = baseWidth * scaleFactor;
     const height = baseHeight * scaleFactor;
     createShape('rectangle', x - width / 2, y - height / 2, width, height);
+    showToast('◻️ Rectangle created', 'success');
   }, [createShape, getBoardCenter, getScaledSize]);
 
   const handleAddCircle = useCallback(() => {
@@ -56,6 +65,7 @@ export default function Toolbar() {
     const scaleFactor = getScaledSize(baseDiameter);
     const diameter = baseDiameter * scaleFactor;
     createShape('circle', x - diameter / 2, y - diameter / 2, diameter, diameter, '#10B981');
+    showToast('⭕ Circle created', 'success');
   }, [createShape, getBoardCenter, getScaledSize]);
 
   const handleAddLine = useCallback(() => {
@@ -66,22 +76,87 @@ export default function Toolbar() {
     const width = baseWidth * scaleFactor;
     const height = baseHeight * scaleFactor;
     createShape('line', x - width / 2, y - height / 2, width, height, '#F59E0B');
+    showToast('➖ Line created', 'success');
+  }, [createShape, getBoardCenter, getScaledSize]);
+
+  const handleAddOval = useCallback(() => {
+    const { x, y } = getBoardCenter();
+    const baseWidth = 120;
+    const baseHeight = 80;
+    const scaleFactor = getScaledSize(baseWidth);
+    const width = baseWidth * scaleFactor;
+    const height = baseHeight * scaleFactor;
+    createShape('oval', x - width / 2, y - height / 2, width, height, '#8B5CF6');
+    showToast('⭕ Oval created', 'success');
   }, [createShape, getBoardCenter, getScaledSize]);
 
   return (
     <div className="toolbar">
-      <button type="button" className="toolbar-btn" onClick={handleAddSticky}>
-        + Sticky Note
+      <div style={{ 
+        color: '#94A3B8', 
+        fontSize: '0.75rem', 
+        fontWeight: 600, 
+        padding: '8px 12px',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        marginBottom: 8,
+      }}>
+        CREATE OBJECTS
+      </div>
+      <button 
+        type="button" 
+        className="toolbar-btn" 
+        onClick={handleAddSticky}
+        title="Create a sticky note at viewport center (S)"
+      >
+        📝 Sticky Note
       </button>
-      <button type="button" className="toolbar-btn" onClick={handleAddRectangle}>
-        + Rectangle
+      <button 
+        type="button" 
+        className="toolbar-btn" 
+        onClick={handleAddRectangle}
+        title="Create a rectangle at viewport center (R)"
+      >
+        ◻️ Rectangle
       </button>
-      <button type="button" className="toolbar-btn" onClick={handleAddCircle}>
-        + Circle
+      <button 
+        type="button" 
+        className="toolbar-btn" 
+        onClick={handleAddCircle}
+        title="Create a circle at viewport center (C)"
+      >
+        ⭕ Circle
       </button>
-      <button type="button" className="toolbar-btn" onClick={handleAddLine}>
-        + Line
+      <button 
+        type="button" 
+        className="toolbar-btn" 
+        onClick={handleAddLine}
+        title="Create a line at viewport center (L)"
+      >
+        ➖ Line
       </button>
+      <button 
+        type="button" 
+        className="toolbar-btn" 
+        onClick={handleAddOval}
+        title="Create an oval at viewport center (O)"
+      >
+        ⭕ Oval
+      </button>
+      
+      <div style={{ 
+        color: '#94A3B8', 
+        fontSize: '0.75rem', 
+        fontWeight: 600, 
+        padding: '8px 12px',
+        borderTop: '1px solid rgba(255,255,255,0.05)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        marginTop: 16,
+        marginBottom: 8,
+      }}>
+        ACTIONS
+      </div>
+      <HistoryPanel />
+      <ClearBoardButton />
     </div>
   );
 }
