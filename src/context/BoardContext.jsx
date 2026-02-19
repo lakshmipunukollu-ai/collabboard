@@ -11,6 +11,7 @@ import { useUser } from '@clerk/clerk-react';
 import {
   ref,
   onValue,
+  get,
   set,
   update,
   remove,
@@ -19,6 +20,7 @@ import {
 } from 'firebase/database';
 import { database } from '../lib/firebase';
 import { setSaveStatus } from '../components/AutoSaveIndicator';
+import { showToast } from '../components/Toast';
 
 const BoardContext = createContext(null);
 
@@ -34,7 +36,64 @@ function generateId() {
 
 export function BoardProvider({ children, boardId = 'default' }) {
   const { user } = useUser();
+  const [userPermission, setUserPermission] = useState('view'); // 'view', 'edit', or 'owner'
   
+  // Fetch user's permission level for this board
+  useEffect(() => {
+    if (!boardId || !user) return;
+
+    const boardMetaRef = ref(database, `boardsMeta/${boardId}`);
+    const unsubscribe = onValue(boardMetaRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setUserPermission('view');
+        return;
+      }
+
+      // Check if user is owner
+      const isOwner = data.ownerId === user.id;
+      if (isOwner) {
+        setUserPermission('owner');
+        return;
+      }
+
+      // Check shared access by user ID
+      const userEmail = user.emailAddresses[0]?.emailAddress?.toLowerCase();
+      
+      // Sanitize email for Firebase key lookup (same as in BoardShareModal)
+      const sanitizedEmail = userEmail ? userEmail
+        .replace(/\./g, ',')
+        .replace(/@/g, '_at_')
+        .replace(/#/g, '_hash_')
+        .replace(/\$/g, '_dollar_')
+        .replace(/\[/g, '_lbracket_')
+        .replace(/\]/g, '_rbracket_') : null;
+      
+      const sharedAccessById = data.sharedWith && data.sharedWith[user.id];
+      const sharedAccessByEmail = data.sharedWith && sanitizedEmail && data.sharedWith[sanitizedEmail];
+
+      if (sharedAccessById) {
+        setUserPermission(sharedAccessById.permission || 'view');
+      } else if (sharedAccessByEmail) {
+        setUserPermission(sharedAccessByEmail.permission || 'view');
+      } else {
+        setUserPermission('view');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [boardId, user]);
+  
+  // Helper to check if user can edit
+  const canEdit = useCallback(() => {
+    return userPermission === 'edit' || userPermission === 'owner';
+  }, [userPermission]);
+
+  // Helper to check if user is owner
+  const isOwner = useCallback(() => {
+    return userPermission === 'owner';
+  }, [userPermission]);
+
   // Helper to log history with dynamic boardId
   const logHistory = useCallback((action, objectId, objectType, userId, displayName) => {
     const timestamp = Date.now();
@@ -50,6 +109,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
       console.error('Failed to log history:', err);
     });
   }, [boardId]);
+  
   const stageRef = useRef(null);
   const [editingNoteId, setEditingNoteId] = useState(null);
   // Firebase state: what the server has
@@ -89,6 +149,53 @@ export function BoardProvider({ children, boardId = 'default' }) {
     [user, boardId]
   );
   const historyRef = useMemo(() => ref(database, `boards/${boardId}/history`), [boardId]);
+
+  // One-time fix: Set parentFrameId for existing objects inside frames
+  useEffect(() => {
+    if (!boardId || !user) return;
+    
+    const fixParentIds = async () => {
+      const snapshot = await get(firebaseObjectsRef);
+      const val = snapshot.val() || {};
+      
+      const frames = Object.entries(val).filter(([, obj]) => obj.type === 'frame');
+      if (frames.length === 0) return;
+      
+      const updates = {};
+      Object.entries(val).forEach(([objId, obj]) => {
+        if (obj.type !== 'frame' && !obj.parentFrameId) {
+          // Check if this object is inside any frame
+          for (const [frameId, frame] of frames) {
+            const frameX = frame.x || 0;
+            const frameY = frame.y || 0;
+            const frameW = frame.width || 600;
+            const frameH = frame.height || 400;
+            
+            const objW = obj.width || 100;
+            const objH = obj.height || 100;
+            const objCenterX = obj.x + objW / 2;
+            const objCenterY = obj.y + objH / 2;
+            
+            if (objCenterX >= frameX && objCenterX <= frameX + frameW &&
+                objCenterY >= frameY && objCenterY <= frameY + frameH) {
+              console.log(`🔧 Setting parentFrameId for object ${objId} -> frame ${frameId}`);
+              updates[`${objId}/parentFrameId`] = frameId;
+              break;
+            }
+          }
+        }
+      });
+      
+      if (Object.keys(updates).length > 0) {
+        console.log(`🔧 Fixing ${Object.keys(updates).length} objects with missing parentFrameId`);
+        await update(ref(database, `boards/${boardId}/objects`), updates);
+      }
+    };
+    
+    // Run once after a short delay to let Firebase load
+    const timer = setTimeout(fixParentIds, 1000);
+    return () => clearTimeout(timer);
+  }, [boardId, user]);
 
   useEffect(() => {
     console.log('🔥 Firebase: Setting up real-time listeners...');
@@ -207,6 +314,9 @@ export function BoardProvider({ children, boardId = 'default' }) {
 
   const createStickyNote = useCallback((text, x, y, color = '#FEF08A', width = 160, height = 120) => {
     if (!user) return null;
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return null;
+    }
     
     const id = generateId();
     const safeText = escapeHtml(String(text || 'New note'));
@@ -253,6 +363,9 @@ export function BoardProvider({ children, boardId = 'default' }) {
 
   const createShape = useCallback((type, x, y, width, height, color = '#6366F1') => {
     if (!user) return null;
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return null;
+    }
     
     const id = generateId();
     const newObj = {
@@ -286,7 +399,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
     });
     
     return id;
-  }, [user]);
+  }, [user, userPermission, boardId, logHistory]);
 
   const startEditing = useCallback((objectId) => {
     if (!user) return;
@@ -305,7 +418,41 @@ export function BoardProvider({ children, boardId = 'default' }) {
   }, []);
 
   const moveObject = useCallback((objectId, x, y) => {
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return;
+    }
     const currentObj = objectsRef.current[objectId] || {};
+    
+    // Check if object is being placed inside a frame
+    let parentFrameId = currentObj.parentFrameId || null;
+    const allObjects = objectsRef.current;
+    
+    // Only check frame relationship if this isn't a frame itself
+    if (currentObj.type !== 'frame') {
+      // Find if this object is now inside a frame
+      let foundFrame = null;
+      for (const [frameId, frameObj] of Object.entries(allObjects)) {
+        if (frameObj.type === 'frame' && frameId !== objectId) {
+          const frameX = frameObj.x || 0;
+          const frameY = frameObj.y || 0;
+          const frameW = frameObj.width || 600;
+          const frameH = frameObj.height || 400;
+          
+          // Check if object center is inside frame
+          const objW = currentObj.width || 100;
+          const objH = currentObj.height || 100;
+          const objCenterX = x + objW / 2;
+          const objCenterY = y + objH / 2;
+          
+          if (objCenterX >= frameX && objCenterX <= frameX + frameW &&
+              objCenterY >= frameY && objCenterY <= frameY + frameH) {
+            foundFrame = frameId;
+            break;
+          }
+        }
+      }
+      parentFrameId = foundFrame;
+    }
     
     // Optimistic: update position immediately in local state
     setOptimisticUpdates((prev) => ({
@@ -314,6 +461,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
         ...currentObj,
         x: Number(x),
         y: Number(y),
+        parentFrameId,
         updatedAt: Date.now(),
       },
     }));
@@ -323,11 +471,15 @@ export function BoardProvider({ children, boardId = 'default' }) {
     update(objRef, {
       x: Number(x),
       y: Number(y),
+      parentFrameId,
       updatedAt: serverTimestamp(),
     });
   }, []);
 
   const updateObject = useCallback((objectId, payload) => {
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return;
+    }
     const safePayload = { ...payload };
     if (safePayload.text !== undefined) {
       safePayload.text = escapeHtml(String(safePayload.text));
@@ -363,9 +515,12 @@ export function BoardProvider({ children, boardId = 'default' }) {
         console.error('❌ Update failed:', err);
         setSaveStatus('error');
       });
-  }, []);
+  }, [userPermission, boardId]);
 
   const resizeObject = useCallback((objectId, width, height) => {
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return;
+    }
     const currentObj = objectsRef.current[objectId] || {};
     
     // Optimistic: update size immediately in local state
@@ -390,8 +545,22 @@ export function BoardProvider({ children, boardId = 'default' }) {
 
   const deleteObject = useCallback((objectId) => {
     if (!user) return;
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return;
+    }
     
     const obj = objectsRef.current[objectId];
+    
+    // If deleting a frame, clear parentFrameId from all children
+    if (obj && obj.type === 'frame') {
+      Object.entries(objectsRef.current).forEach(([childId, childObj]) => {
+        if (childObj.parentFrameId === objectId) {
+          console.log(`🔗 Clearing parentFrameId from orphaned child ${childId}`);
+          const childRef = ref(database, `boards/${boardId}/objects/${childId}`);
+          update(childRef, { parentFrameId: null });
+        }
+      });
+    }
     
     // Optimistic: remove from local state immediately
     setOptimisticUpdates((prev) => {
@@ -422,7 +591,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
     
     // Then sync to Firebase
     remove(ref(database, `boards/${boardId}/objects/${objectId}`));
-  }, [user]);
+  }, [user, userPermission, boardId, logHistory, stopEditing]);
 
   const deleteSelectedObjects = useCallback(() => {
     selectedIds.forEach((id) => {
@@ -529,6 +698,96 @@ export function BoardProvider({ children, boardId = 'default' }) {
     setSelectedIds(new Set(newIds));
   }, []);
 
+  const createConnector = useCallback((startObjectId, endObjectId, arrowStyle = 'straight', color = '#64748b') => {
+    if (!user) return;
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return;
+    }
+    
+    const id = generateId();
+    const displayName = user.firstName || user.emailAddresses[0]?.emailAddress || 'User';
+    
+    const newConnector = {
+      type: 'connector',
+      startObjectId,
+      endObjectId,
+      color,
+      strokeWidth: 2,
+      arrowStyle,
+      createdAt: Date.now(),
+      createdBy: user.id,
+      createdByName: displayName,
+    };
+
+    // Optimistic create
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newConnector }));
+    
+    // Log history
+    logHistory('created', id, 'connector', user.id, displayName);
+    
+    // Sync to Firebase
+    set(ref(database, `boards/${boardId}/objects/${id}`), {
+      ...newConnector,
+      updatedAt: serverTimestamp(),
+    }).then(() => {
+      console.log(`✅ Connector ${id} synced`);
+      setOptimisticUpdates((prev) => {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      });
+    }).catch(err => {
+      console.error('Failed to create connector:', err);
+    });
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createFrame = useCallback((x, y, width = 600, height = 400, title = 'Frame') => {
+    if (!user) return null;
+    if (userPermission !== 'edit' && userPermission !== 'owner') {
+      return null;
+    }
+    
+    const id = generateId();
+    const displayName = user.firstName || user.emailAddresses[0]?.emailAddress || 'User';
+    
+    const newFrame = {
+      type: 'frame',
+      x: Number(x) || 0,
+      y: Number(y) || 0,
+      width: Number(width),
+      height: Number(height),
+      title,
+      backgroundColor: 'rgba(100, 116, 139, 0.1)',
+      borderColor: '#64748b',
+      createdAt: Date.now(),
+      createdBy: user.id,
+      createdByName: displayName,
+    };
+
+    // Optimistic create
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newFrame }));
+    
+    // Log history
+    logHistory('created', id, 'frame', user.id, displayName);
+    
+    // Sync to Firebase
+    set(ref(database, `boards/${boardId}/objects/${id}`), {
+      ...newFrame,
+      updatedAt: serverTimestamp(),
+    }).then(() => {
+      console.log(`✅ Frame ${id} synced`);
+      setOptimisticUpdates((prev) => {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      });
+      setSaveStatus('saved');
+    }).catch((err) => {
+      console.error('❌ Failed to create frame:', err);
+      setSaveStatus('error');
+    });
+    
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
   const value = {
     objects,
     cursors,
@@ -548,6 +807,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
     pasteObjects,
     createStickyNote,
     createShape,
+    createConnector,
+    createFrame,
     moveObject,
     updateObject,
     resizeObject,
@@ -558,6 +819,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
     startEditing,
     stopEditing,
     history,
+    userPermission,
   };
 
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;

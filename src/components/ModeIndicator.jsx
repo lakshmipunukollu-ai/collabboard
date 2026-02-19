@@ -21,8 +21,6 @@ export default function ModeIndicator({ isDragging, scale, totalObjects, visible
     color = '#3B82F6';
   }
 
-  const zoomPercent = Math.round(scale * 100);
-
   return (
     <div
       style={{
@@ -46,16 +44,6 @@ export default function ModeIndicator({ isDragging, scale, totalObjects, visible
         <span style={{ color, fontWeight: 600, fontSize: '0.875rem' }}>
           {mode}
         </span>
-      </div>
-      <div
-        style={{
-          width: 1,
-          height: 24,
-          background: 'rgba(255,255,255,0.1)',
-        }}
-      />
-      <div style={{ color: '#94A3B8', fontSize: '0.875rem', fontWeight: 500 }}>
-        {zoomPercent}%
       </div>
       <div
         style={{

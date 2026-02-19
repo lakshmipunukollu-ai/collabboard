@@ -3,10 +3,14 @@ import { Stage, Layer, Rect } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
 import StickyNote from './StickyNote';
 import BoardShape from './BoardShape';
+import Connector from './Connector';
+import Frame from './Frame';
 import CursorOverlay from './CursorOverlay';
 import StickyNoteEditOverlay from './StickyNoteEditOverlay';
 import ModeIndicator from './ModeIndicator';
+import ZoomDisplay from './ZoomDisplay';
 import ZoomControls from './ZoomControls';
+import ContextMenu from './ContextMenu';
 import ErrorBoundary from './ErrorBoundary';
 import { showToast } from './Toast';
 
@@ -39,6 +43,8 @@ export default function Canvas() {
   const [isDragging, setIsDragging] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionBox, setSelectionBox] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [clipboard, setClipboard] = useState(null);
   const lastPointerRef = useRef(null);
   const cursorPosRef = useRef(null);
   const selectionStartRef = useRef(null);
@@ -183,6 +189,7 @@ export default function Canvas() {
       if (cmdOrCtrl && e.key === 'c' && selectedIds.size > 0) {
         e.preventDefault();
         copySelectedObjects();
+        setClipboard(true);
         showToast(`📋 Copied ${selectedIds.size} object${selectedIds.size > 1 ? 's' : ''}`, 'info');
       }
       
@@ -217,7 +224,7 @@ export default function Canvas() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId, scale, zoomToScale, fitAllObjects, objects, deleteObject]);
+  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId, scale, zoomToScale, fitAllObjects, objects, deleteObject, setClipboard]);
 
   const handleWheel = useCallback((e) => {
     e.evt.preventDefault();
@@ -398,9 +405,50 @@ export default function Canvas() {
   const shapes = visibleObjects.filter(([, obj]) => 
     obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'oval'
   );
+  const connectors = visibleObjects.filter(([, obj]) => obj.type === 'connector');
+  const frames = visibleObjects.filter(([, obj]) => obj.type === 'frame');
   
   const totalCount = Object.keys(objects).length;
   const visibleCount = visibleObjects.length;
+
+  const handleContextMenu = useCallback((e) => {
+    e.evt.preventDefault();
+    const containerPos = containerRef.current?.getBoundingClientRect();
+    if (!containerPos) return;
+
+    setContextMenu({
+      x: e.evt.clientX - containerPos.left,
+      y: e.evt.clientY - containerPos.top,
+    });
+  }, []);
+
+  const handleCopyFromMenu = useCallback(() => {
+    if (selectedIds.size > 0) {
+      copySelectedObjects();
+      setClipboard(true);
+      showToast(`📋 Copied ${selectedIds.size} object${selectedIds.size > 1 ? 's' : ''}`, 'info');
+    }
+  }, [selectedIds, copySelectedObjects]);
+
+  const handlePasteFromMenu = useCallback(() => {
+    pasteObjects();
+    showToast('📋 Pasted objects', 'success');
+  }, [pasteObjects]);
+
+  const handleDuplicateFromMenu = useCallback(() => {
+    if (selectedIds.size > 0) {
+      duplicateSelectedObjects();
+      showToast(`📑 Duplicated ${selectedIds.size} object${selectedIds.size > 1 ? 's' : ''}`, 'success');
+    }
+  }, [selectedIds, duplicateSelectedObjects]);
+
+  const handleDeleteFromMenu = useCallback(() => {
+    if (selectedIds.size > 0) {
+      const count = selectedIds.size;
+      deleteSelectedObjects();
+      showToast(`🗑️ Deleted ${count} object${count > 1 ? 's' : ''}`, 'info');
+    }
+  }, [selectedIds, deleteSelectedObjects]);
 
   return (
     <div ref={containerRef} className="canvas-container" id="canvas-overlay-root">
@@ -419,10 +467,20 @@ export default function Canvas() {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onContextMenu={handleContextMenu}
         draggable={false}
         style={{ cursor: isSelecting ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
       >
         <Layer>
+          {/* Render connectors first (behind everything) */}
+          {connectors.map(([id, obj]) => (
+            <Connector key={id} id={id} data={obj} />
+          ))}
+          {/* Render frames (behind objects but in front of connectors) */}
+          {frames.map(([id, obj]) => (
+            <Frame key={id} id={id} data={obj} />
+          ))}
+          {/* Render objects */}
           {stickyNotes.map(([id, obj]) => (
             <StickyNote key={id} id={id} data={obj} />
           ))}
@@ -456,6 +514,20 @@ export default function Canvas() {
         totalObjects={totalCount}
         visibleObjects={visibleCount}
       />
+      <ZoomDisplay scale={scale} />
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onCopy={handleCopyFromMenu}
+          onPaste={handlePasteFromMenu}
+          onDuplicate={handleDuplicateFromMenu}
+          onDelete={handleDeleteFromMenu}
+          hasSelection={selectedIds.size > 0}
+          hasClipboard={clipboard}
+        />
+      )}
       <CursorOverlay stageRef={stageRef} scale={scale} stagePos={stagePos} />
       <ErrorBoundary>
         <StickyNoteEditOverlay />

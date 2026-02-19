@@ -1,33 +1,58 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, update } from 'firebase/database';
+import { useUser } from '@clerk/clerk-react';
+import { ref, onValue, update, remove } from 'firebase/database';
 import { database } from '../lib/firebase';
 import { showToast } from './Toast';
 
 export default function BoardShareModal({ boardId, isOpen, onClose }) {
+  const { user } = useUser();
   const [email, setEmail] = useState('');
   const [permission, setPermission] = useState('edit');
   const [sharedUsers, setSharedUsers] = useState([]);
   const [boardOwner, setBoardOwner] = useState('');
+  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
-    if (!isOpen || !boardId) return;
+    if (!isOpen || !boardId || !user) return;
+
+    console.log('Loading board metadata for:', boardId, 'user:', user.id);
 
     const boardMetaRef = ref(database, `boardsMeta/${boardId}`);
     const unsubscribe = onValue(boardMetaRef, (snapshot) => {
       const data = snapshot.val();
+      console.log('Board metadata:', data);
+      
       if (data) {
         setBoardOwner(data.ownerName || 'Unknown');
+        const ownerCheck = data.ownerId === user.id;
+        console.log('Owner check:', { boardOwnerId: data.ownerId, userId: user.id, isOwner: ownerCheck });
+        setIsOwner(ownerCheck);
         const shared = data.sharedWith || {};
         const users = Object.entries(shared).map(([userId, userData]) => ({
           userId,
           ...userData,
         }));
         setSharedUsers(users);
+      } else {
+        console.warn('No board metadata found for:', boardId);
+        setIsOwner(false);
       }
     });
 
     return () => unsubscribe();
-  }, [isOpen, boardId]);
+  }, [isOpen, boardId, user]);
+
+  // Sanitize email for use as Firebase key (Firebase doesn't allow . # $ [ ] in keys)
+  const sanitizeEmailForKey = (email) => {
+    return email
+      .toLowerCase()
+      .replace(/\./g, ',')
+      .replace(/@/g, '_at_')
+      .replace(/#/g, '_hash_')
+      .replace(/\$/g, '_dollar_')
+      .replace(/\[/g, '_lbracket_')
+      .replace(/\]/g, '_rbracket_');
+  };
 
   const handleShare = async () => {
     if (!email.trim()) {
@@ -35,31 +60,55 @@ export default function BoardShareModal({ boardId, isOpen, onClose }) {
       return;
     }
 
-    // In a real app, you'd look up the user ID by email
-    // For now, we'll use email as the user ID (simplified)
-    const userId = email.trim();
+    if (!isOwner) {
+      showToast('⚠️ Only the board owner can share', 'warning');
+      return;
+    }
+
+    if (!boardId) {
+      console.error('No boardId provided to share modal');
+      showToast('❌ Invalid board ID', 'error');
+      return;
+    }
+
+    // Sanitize email to make it Firebase-safe
+    const sanitizedEmail = sanitizeEmailForKey(email.trim());
+
+    console.log('Attempting to share board:', { boardId, originalEmail: email.trim(), sanitizedEmail, permission });
 
     try {
-      await update(ref(database, `boardsMeta/${boardId}/sharedWith/${userId}`), {
+      const shareRef = ref(database, `boardsMeta/${boardId}/sharedWith/${sanitizedEmail}`);
+      await update(shareRef, {
         email: email.trim(),
         permission,
         sharedAt: Date.now(),
+        sharedBy: user.id,
+        sharedByName: user.firstName || user.emailAddresses[0]?.emailAddress || 'User',
       });
 
-      showToast('✅ Board shared successfully', 'success');
+      console.log('✅ Board shared successfully');
+      showToast('✅ Board shared successfully! User can access via link.', 'success');
       setEmail('');
     } catch (error) {
       console.error('Error sharing board:', error);
-      showToast('❌ Failed to share board', 'error');
+      console.error('Share details:', { boardId, email: email.trim(), sanitizedEmail, permission, isOwner });
+      showToast(`❌ Failed to share board: ${error.message}`, 'error');
     }
   };
 
   const handleRemoveAccess = async (userId) => {
+    if (!isOwner) {
+      showToast('⚠️ Only the board owner can remove access', 'warning');
+      return;
+    }
+
     try {
-      await update(ref(database, `boardsMeta/${boardId}/sharedWith/${userId}`), null);
+      const userRef = ref(database, `boardsMeta/${boardId}/sharedWith/${userId}`);
+      await remove(userRef);
       showToast('✅ Access removed', 'success');
     } catch (error) {
       console.error('Error removing access:', error);
+      console.error('Remove details:', { boardId, userId });
       showToast('❌ Failed to remove access', 'error');
     }
   };
@@ -157,8 +206,9 @@ export default function BoardShareModal({ boardId, isOpen, onClose }) {
                 cursor: 'pointer',
               }}
             >
-              <option value="view">View</option>
-              <option value="edit">Edit</option>
+              <option value="view">View Only</option>
+              <option value="edit">Can Edit</option>
+              <option value="owner">Owner</option>
             </select>
           </div>
           <button

@@ -1,39 +1,34 @@
 import { useState, useRef, useEffect } from 'react';
+import { useUser, useAuth } from '@clerk/clerk-react';
 import { showToast } from './Toast';
 
 export default function AIAssistant() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef(null);
 
-  useEffect(() => {
-    // Load API key from localStorage
-    const savedKey = localStorage.getItem('openai_api_key');
-    if (savedKey) {
-      setApiKey(savedKey);
-    }
-  }, []);
+  // Get Firebase project ID from environment
+  const firebaseProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || 'collabboard-lakshmi';
+  
+  // Use local emulator if in development, otherwise use production URL
+  const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const functionUrl = isDev 
+    ? 'http://localhost:5002/collabboard-lakshmi/us-central1/aiChat'
+    : `https://us-central1-${firebaseProjectId}.cloudfunctions.net/aiChat`;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const saveApiKey = () => {
-    localStorage.setItem('openai_api_key', apiKey);
-    setShowSettings(false);
-    showToast('✅ API key saved', 'success');
-  };
-
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    if (!apiKey) {
-      showToast('⚠️ Please add your OpenAI API key in settings', 'warning');
-      setShowSettings(true);
+    if (!user) {
+      showToast('⚠️ Please sign in to use the AI Assistant', 'warning');
       return;
     }
 
@@ -43,46 +38,46 @@ export default function AIAssistant() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      // Get Clerk session token for authentication
+      const token = await getToken();
+      
+      // Call our Firebase Function instead of OpenAI directly
+      const response = await fetch(functionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
+          messages: [...messages, userMessage],
           model: 'gpt-4',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a helpful assistant for CollabBoard, a collaborative whiteboard app. Help users with brainstorming, organizing ideas, project planning, and any questions about using the app. Be concise and friendly.',
-            },
-            ...messages.slice(-10), // Last 10 messages for context
-            userMessage,
-          ],
-          max_tokens: 500,
-          temperature: 0.7,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
       }
 
       const data = await response.json();
       const assistantMessage = {
         role: 'assistant',
-        content: data.choices[0].message.content,
+        content: data.message.content,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('AI Assistant error:', error);
-      showToast('❌ Failed to get response. Check your API key.', 'error');
+      const isConnectionError = error?.message === 'Failed to fetch' || (error?.name === 'TypeError' && String(error?.message || '').toLowerCase().includes('fetch'));
+      const userMessage = isConnectionError
+        ? 'AI Assistant is unavailable. Make sure the backend is running (e.g. Firebase Functions emulator).'
+        : 'Sorry, I encountered an error. Please try again.';
+      showToast(isConnectionError ? `❌ ${userMessage}` : '❌ Failed to get response. Please try again.', 'error');
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: 'Sorry, I encountered an error. Please check your API key and try again.',
+          content: userMessage,
         },
       ]);
     } finally {
@@ -155,101 +150,32 @@ export default function AIAssistant() {
           <span style={{ fontSize: '1.5rem' }}>🤖</span>
           <span style={{ fontWeight: 600 }}>AI Assistant</span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            title="Settings"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '1.25rem',
-              padding: 4,
-            }}
-          >
-            ⚙️
-          </button>
-          <button
-            onClick={() => setIsOpen(false)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '1.5rem',
-              padding: 4,
-            }}
-          >
-            ×
-          </button>
-        </div>
+        <button
+          onClick={() => setIsOpen(false)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '1.5rem',
+            padding: 4,
+          }}
+        >
+          ×
+        </button>
       </div>
 
-      {/* Settings Panel */}
-      {showSettings && (
+      {/* Chat Panel */}
+      {(
         <div style={{
           padding: 16,
           background: '#0f172a',
           borderBottom: '1px solid #334155',
+          color: '#94a3b8',
+          fontSize: '0.75rem',
+          textAlign: 'center',
         }}>
-          <label style={{
-            display: 'block',
-            color: '#CBD5E1',
-            fontSize: '0.875rem',
-            marginBottom: 8,
-          }}>
-            OpenAI API Key
-          </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
-            style={{
-              width: '100%',
-              padding: 8,
-              background: '#1e293b',
-              border: '1px solid #334155',
-              borderRadius: 6,
-              color: 'white',
-              fontSize: '0.875rem',
-              marginBottom: 8,
-              boxSizing: 'border-box',
-            }}
-          />
-          <button
-            onClick={saveApiKey}
-            style={{
-              width: '100%',
-              padding: 8,
-              background: '#667eea',
-              border: 'none',
-              borderRadius: 6,
-              color: 'white',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Save Key
-          </button>
-          <p style={{
-            marginTop: 8,
-            fontSize: '0.75rem',
-            color: '#64748b',
-            marginBottom: 0,
-          }}>
-            Get your API key from{' '}
-            <a
-              href="https://platform.openai.com/api-keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#667eea' }}
-            >
-              OpenAI
-            </a>
-          </p>
+          ✨ AI Assistant Ready
         </div>
       )}
 

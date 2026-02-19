@@ -32,8 +32,24 @@ export default function BoardListPage({ onSelectBoard }) {
         
         if (board.ownerId === user.id) {
           ownedBoards.push(boardData);
-        } else if (board.sharedWith && board.sharedWith[user.id]) {
-          shared.push(boardData);
+        } else if (board.sharedWith) {
+          // Check if shared with user ID
+          const sharedById = board.sharedWith[user.id];
+          
+          // Check if shared with sanitized email
+          const userEmail = user.emailAddresses[0]?.emailAddress?.toLowerCase();
+          const sanitizedEmail = userEmail ? userEmail
+            .replace(/\./g, ',')
+            .replace(/@/g, '_at_')
+            .replace(/#/g, '_hash_')
+            .replace(/\$/g, '_dollar_')
+            .replace(/\[/g, '_lbracket_')
+            .replace(/\]/g, '_rbracket_') : null;
+          const sharedByEmail = sanitizedEmail && board.sharedWith[sanitizedEmail];
+          
+          if (sharedById || sharedByEmail) {
+            shared.push(boardData);
+          }
         }
       });
 

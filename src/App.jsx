@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useUser, useClerk, SignedIn, SignedOut } from '@clerk/clerk-react';
-import { ref, onValue, update } from 'firebase/database';
+import { ref, onValue, update, set } from 'firebase/database';
 import { database } from './lib/firebase';
 import { BoardProvider } from './context/BoardContext';
 import Canvas from './components/Canvas';
@@ -16,6 +16,7 @@ import HelpPanel from './components/HelpPanel';
 import AutoSaveIndicator from './components/AutoSaveIndicator';
 import EnhancedPresence from './components/EnhancedPresence';
 import PropertiesPanel from './components/PropertiesPanel';
+import AlignmentTools from './components/AlignmentTools';
 import AIAssistant from './components/AIAssistant';
 import './App.css';
 
@@ -24,31 +25,118 @@ function BoardLayout({ boardId, onBackToList }) {
   const { signOut } = useClerk();
   const [boardName, setBoardName] = useState('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [hasAccess, setHasAccess] = useState(null); // null = checking, true = has access, false = no access
+  const [userPermission, setUserPermission] = useState('view'); // 'view', 'edit', or 'owner'
 
   useEffect(() => {
-    if (!boardId) return;
+    if (!boardId || !user) return;
 
-    // Listen to board metadata for the name
+    // Listen to board metadata to check access and get board name
     const boardMetaRef = ref(database, `boardsMeta/${boardId}`);
     const unsubscribe = onValue(boardMetaRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
+      
+      if (!data) {
+        // Board metadata doesn't exist - create it (for legacy boards or 'default' board)
+        console.log('Creating missing boardsMeta for:', boardId);
+        set(ref(database, `boardsMeta/${boardId}`), {
+          name: boardId === 'default' ? 'Board 2' : 'Untitled Board',
+          ownerId: user.id,
+          ownerName: user.firstName || user.emailAddresses[0]?.emailAddress || 'User',
+          createdAt: Date.now(),
+          lastModified: Date.now(),
+          sharedWith: {},
+        }).then(() => {
+          console.log('✅ Board metadata created');
+        }).catch(err => {
+          console.error('Failed to create board metadata:', err);
+          setHasAccess(false);
+          setBoardName('Board Not Found');
+        });
+        
+        // Assume ownership for now
+        setHasAccess(true);
+        setUserPermission('owner');
+        setBoardName(boardId === 'default' ? 'Board 2' : 'Untitled Board');
+        return;
+      }
+
+      // Check if user is owner or has shared access
+      const isOwner = data.ownerId === user.id;
+      const userEmail = user.emailAddresses[0]?.emailAddress?.toLowerCase();
+      
+      // Sanitize email for Firebase key lookup (same as in BoardShareModal)
+      const sanitizedEmail = userEmail ? userEmail
+        .replace(/\./g, ',')
+        .replace(/@/g, '_at_')
+        .replace(/#/g, '_hash_')
+        .replace(/\$/g, '_dollar_')
+        .replace(/\[/g, '_lbracket_')
+        .replace(/\]/g, '_rbracket_') : null;
+      
+      const sharedAccessById = data.sharedWith && data.sharedWith[user.id];
+      const sharedAccessByEmail = data.sharedWith && sanitizedEmail && data.sharedWith[sanitizedEmail];
+
+      if (isOwner) {
+        setHasAccess(true);
+        setUserPermission('owner');
         setBoardName(data.name || 'Untitled Board');
+      } else if (sharedAccessById) {
+        setHasAccess(true);
+        setUserPermission(sharedAccessById.permission || 'view');
+        setBoardName(data.name || 'Untitled Board');
+      } else if (sharedAccessByEmail) {
+        setHasAccess(true);
+        setUserPermission(sharedAccessByEmail.permission || 'view');
+        setBoardName(data.name || 'Untitled Board');
+      } else {
+        setHasAccess(false);
+        setUserPermission('view');
+        setBoardName('Access Denied');
+      }
+
+      // Update lastModified when user opens the board (only if they have access)
+      if (isOwner || sharedAccessById || sharedAccessByEmail) {
+        update(ref(database, `boardsMeta/${boardId}`), {
+          lastModified: Date.now(),
+        }).catch(err => console.error('Failed to update lastModified:', err));
       }
     });
 
-    // Update lastModified when user opens the board
-    update(ref(database, `boardsMeta/${boardId}`), {
-      lastModified: Date.now(),
-    });
-
     return () => unsubscribe();
-  }, [boardId]);
+  }, [boardId, user]);
 
-  if (!isLoaded) {
+  if (!isLoaded || hasAccess === null) {
     return (
       <div className="app-loading">
         <p>Loading...</p>
+      </div>
+    );
+  }
+
+  // Show access denied message if user doesn't have permission
+  if (hasAccess === false) {
+    return (
+      <div className="app-loading" style={{ textAlign: 'center' }}>
+        <h2 style={{ color: '#ef4444', marginBottom: 16 }}>🔒 Access Denied</h2>
+        <p style={{ color: '#94A3B8', marginBottom: 24 }}>
+          You don't have permission to view this board.
+        </p>
+        <button
+          onClick={onBackToList}
+          style={{
+            padding: '12px 24px',
+            background: '#667eea',
+            border: 'none',
+            borderRadius: 8,
+            color: 'white',
+            fontSize: '1rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          ← Back to My Boards
+        </button>
       </div>
     );
   }
@@ -63,6 +151,24 @@ function BoardLayout({ boardId, onBackToList }) {
         isOpen={isShareModalOpen} 
         onClose={() => setIsShareModalOpen(false)} 
       />
+      {userPermission === 'view' && (
+        <div style={{
+          position: 'fixed',
+          top: 60,
+          left: 0,
+          right: 0,
+          background: '#fbbf24',
+          color: '#92400e',
+          padding: '10px 16px',
+          textAlign: 'center',
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          zIndex: 1000,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+        }}>
+          👁️ View-only access. Contact the board owner to request edit permissions.
+        </div>
+      )}
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <button
@@ -125,6 +231,7 @@ function BoardLayout({ boardId, onBackToList }) {
           <PropertiesPanel />
         </main>
       </div>
+      <AlignmentTools />
       <AIAssistant />
     </div>
   );

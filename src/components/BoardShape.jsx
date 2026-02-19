@@ -8,7 +8,8 @@ export default function BoardShape({ id, data }) {
   const { 
     moveObject, 
     deleteObject, 
-    resizeObject, 
+    resizeObject,
+    updateObject,
     selectedIds, 
     toggleSelection,
     activeEdits,
@@ -36,6 +37,7 @@ export default function BoardShape({ id, data }) {
     height = 80, 
     color = '#6366F1',
     opacity = 0.9,
+    rotation = 0,
   } = data;
 
   // Attach transformer to this group when selected
@@ -89,8 +91,21 @@ export default function BoardShape({ id, data }) {
       clearTimeout(dragThrottleRef.current);
       dragThrottleRef.current = null;
     }
+    
+    // Snap to 20px grid (hold Shift to disable snapping)
+    let finalX = e.target.x();
+    let finalY = e.target.y();
+    
+    if (!e.evt.shiftKey) {
+      const gridSize = 20;
+      finalX = Math.round(finalX / gridSize) * gridSize;
+      finalY = Math.round(finalY / gridSize) * gridSize;
+      e.target.x(finalX);
+      e.target.y(finalY);
+    }
+    
     // Final position update
-    moveObject(id, e.target.x(), e.target.y());
+    moveObject(id, finalX, finalY);
     setIsDragging(false);
     stopEditing(id);
   };
@@ -109,6 +124,7 @@ export default function BoardShape({ id, data }) {
 
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
+    const newRotation = node.rotation();
 
     // Reset scale and apply to width/height instead
     node.scaleX(1);
@@ -120,8 +136,13 @@ export default function BoardShape({ id, data }) {
     // Optimistic resize
     resizeObject(id, newWidth, newHeight);
     
-    // Also update position if node was moved
+    // Update position if node was moved
     moveObject(id, node.x(), node.y());
+    
+    // Save rotation if it changed
+    if (Math.abs(newRotation - rotation) > 0.1) {
+      updateObject(id, { rotation: newRotation });
+    }
     
     stopEditing(id);
   };
@@ -207,6 +228,7 @@ export default function BoardShape({ id, data }) {
         ref={groupRef}
         x={x}
         y={y}
+        rotation={rotation}
         draggable
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
