@@ -235,9 +235,12 @@ export default function AIAssistant() {
           };
           requestAnimationFrame(() => setTimeout(runSpace, 0));
         } else if (action.type === 'createSwotTemplate') {
-          const sp = 30;
-          const fw = 400;
-          const fh = 280;
+          // Layout constants
+          // Before: sp=30, fw=400, fh=280 — stickies were 120×80 in a 2-col mini-grid starting at y+12 (overlapping the 40px title bar)
+          // After:  sp=24, fw=440, fh=400 — stickies are full-width single column, starting below the 40px title bar
+          const sp = 24;
+          const fw = 440;
+          const fh = 400;
           const startX = firstCenter.x - (2 * fw + sp) / 2;
           const startY = firstCenter.y - (2 * fh + sp) / 2;
           const titles = ['Strengths', 'Weaknesses', 'Opportunities', 'Threats'];
@@ -251,7 +254,6 @@ export default function AIAssistant() {
               frameIds.push(id);
             }
           });
-          // Sticky notes inside each frame: 120x80, padding 12, gap 8 (2 columns max)
           // Frontend fallback: if stickies are missing or all empty, use placeholder content so the board is never blank.
           let stickiesPayload = action.stickies && typeof action.stickies === 'object' ? action.stickies : null;
           if (!stickiesPayload || ['strengths', 'weaknesses', 'opportunities', 'threats'].every(
@@ -265,13 +267,11 @@ export default function AIAssistant() {
             };
           }
           const quadKeys = ['strengths', 'weaknesses', 'opportunities', 'threats'];
-          const pad = 12;
-          const sw = 120;
-          const sh = 80;
-          const gap = 8;
-          const slotPositions = [
-            [0, 0], [1, 0], [0, 1], [1, 1],
-          ];
+          const titleH = 40; // matches the title bar height rendered in Frame.jsx
+          const pad = 16;    // padding on left/right/bottom of sticky area
+          const sw = fw - 2 * pad; // full-width stickies (408px at fw=440)
+          const sh = 72;     // sticky height — tall enough for 2–3 lines
+          const gap = 12;    // vertical gap between stickies
           if (updateObject) {
             const updates = [];
             quadKeys.forEach((key, quadIndex) => {
@@ -281,9 +281,9 @@ export default function AIAssistant() {
               const frameX = startX + (quadIndex % 2) * (fw + sp);
               const frameY = startY + Math.floor(quadIndex / 2) * (fh + sp);
               items.forEach((text, idx) => {
-                const [sx, sy] = slotPositions[idx];
-                const x = frameX + pad + sx * (sw + gap);
-                const y = frameY + pad + sy * (sh + gap);
+                // Single-column layout, starting below the title bar
+                const x = frameX + pad;
+                const y = frameY + titleH + pad + idx * (sh + gap);
                 const stickyId = createStickyNote(String(text || '').slice(0, 200), x, y, STICKY_COLORS[idx % STICKY_COLORS.length], sw, sh);
                 if (stickyId) {
                   createdIdsThisBatch.push(stickyId);
