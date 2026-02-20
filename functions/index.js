@@ -297,6 +297,27 @@ function buildTools(actions) {
     }),
 
     tool({
+      name: 'addFlowchart',
+      description:
+        'Create a complete top-to-bottom flowchart for a given process. ' +
+        'Use this when the user asks for a flowchart, flow diagram, or process diagram.',
+      parameters: z.object({
+        title: z.string().nullish().describe('Flowchart title / process name.'),
+        steps: z.array(z.string()).nullish().describe('Ordered list of step labels (3-8 words each). Include Start and End.'),
+      }),
+      execute: async (args) => {
+        const steps = args.steps ?? ['Start', 'Step 1', 'Step 2', 'Step 3', 'End'];
+        const title = args.title ?? 'Flowchart';
+        actions.push({
+          type: 'addFlowchart',
+          title,
+          steps,
+        });
+        return `Flowchart "${title}" with ${steps.length} steps created.`;
+      },
+    }),
+
+    tool({
       name: 'deleteObject',
       description: 'Delete a specific object by ID. Use IDs from board state.',
       parameters: z.object({
@@ -376,7 +397,7 @@ const CREATE_TYPES = new Set([
   'createShape', 'createStickyNote', 'createFrame',
   'createStickyNoteGrid', 'createSwotTemplate',
   'createUserJourney', 'createRetrospectiveBoard',
-  'createFrameWithNotes',
+  'createFrameWithNotes', 'addFlowchart',
 ]);
 const LAYOUT_TYPES = new Set(['arrangeInGrid', 'spaceEvenly']);
 
@@ -440,6 +461,7 @@ const REPLY_MAP = {
   deleteObject: 'Object deleted.',
   clearBoard: 'Board cleared.',
   createFrameWithNotes: 'Frame with notes created.',
+  addFlowchart: 'Flowchart added to the board.',
 };
 
 // ─── Multi-step detection ─────────────────────────────────────────────────────

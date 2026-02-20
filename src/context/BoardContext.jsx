@@ -364,6 +364,126 @@ export function BoardProvider({ children, boardId = 'default' }) {
     return id;
   }, [user, userPermission, boardId, logHistory]);
 
+  const createTextBox = useCallback((text = 'Text', x = 0, y = 0, width = 200, height = 60, color = '#f1f5f9') => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = { type: 'textbox', text, x: Number(x), y: Number(y), width: Number(width), height: Number(height), color, updatedAt: Date.now() };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + newObj.width / 2, y: newObj.y + newObj.height / 2 });
+    const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
+    logHistory('created', id, 'text box', user.id, displayName);
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createArrow = useCallback((x1 = 0, y1 = 0, x2 = 150, y2 = 0, color = '#667eea') => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = { type: 'arrow', x1: Number(x1), y1: Number(y1), x2: Number(x2), y2: Number(y2), color, strokeWidth: 2, updatedAt: Date.now() };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
+    logHistory('created', id, 'arrow', user.id, displayName);
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createImage = useCallback((dataUrl, x = 0, y = 0, width = 240, height = 160) => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = { type: 'image', dataUrl, x: Number(x), y: Number(y), width: Number(width), height: Number(height), updatedAt: Date.now() };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + newObj.width / 2, y: newObj.y + newObj.height / 2 });
+    const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
+    logHistory('created', id, 'image', user.id, displayName);
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createKanban = useCallback((x = 0, y = 0) => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = {
+      type: 'kanban', x: Number(x), y: Number(y), width: 760, height: 480,
+      columns: [
+        { title: 'To Do', cards: ['Add your tasks here'] },
+        { title: 'In Progress', cards: [] },
+        { title: 'Done', cards: [] },
+      ],
+      updatedAt: Date.now(),
+    };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + 380, y: newObj.y + 240 });
+    logHistory('created', id, 'kanban', user.id, user.firstName || 'Anonymous');
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createTable = useCallback((x = 0, y = 0) => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = {
+      type: 'table', x: Number(x), y: Number(y), width: 480, height: 280,
+      rows: [['Column 1', 'Column 2', 'Column 3'], ['', '', ''], ['', '', '']],
+      updatedAt: Date.now(),
+    };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + 240, y: newObj.y + 140 });
+    logHistory('created', id, 'table', user.id, user.firstName || 'Anonymous');
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createCodeBlock = useCallback((x = 0, y = 0) => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = {
+      type: 'code', x: Number(x), y: Number(y), width: 420, height: 240,
+      code: '// Write your code here\n', language: 'javascript',
+      updatedAt: Date.now(),
+    };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + 210, y: newObj.y + 120 });
+    logHistory('created', id, 'code block', user.id, user.firstName || 'Anonymous');
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createEmbed = useCallback((url = '', x = 0, y = 0) => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = {
+      type: 'embed', url, x: Number(x), y: Number(y), width: 480, height: 320,
+      updatedAt: Date.now(),
+    };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + 240, y: newObj.y + 160 });
+    logHistory('created', id, 'embed', user.id, user.firstName || 'Anonymous');
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
+  const createMindMapNode = useCallback((text = 'Idea', x = 0, y = 0, color = '#667eea') => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return null;
+    const id = generateId();
+    const newObj = {
+      type: 'mindmap', text, x: Number(x), y: Number(y), width: 120, height: 120, color,
+      updatedAt: Date.now(),
+    };
+    setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
+    setSelectedIds(new Set([id]));
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + 60, y: newObj.y + 60 });
+    logHistory('created', id, 'mind map node', user.id, user.firstName || 'Anonymous');
+    set(ref(database, `boards/${boardId}/objects/${id}`), { ...newObj, updatedAt: serverTimestamp() }).catch(() => {});
+    return id;
+  }, [user, userPermission, boardId, logHistory]);
+
   const createShape = useCallback((type, x, y, width, height, color = '#6366F1') => {
     if (!user) return null;
     if (userPermission !== 'edit' && userPermission !== 'owner') {
@@ -476,6 +596,39 @@ export function BoardProvider({ children, boardId = 'default' }) {
       updatedAt: serverTimestamp(),
     });
   }, []);
+
+  const groupObjects = useCallback((objectIds) => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return;
+    if (!objectIds || objectIds.length < 2) return;
+    const groupId = generateId();
+    const allObjs = objectsRef.current;
+    const updates = {};
+    objectIds.forEach((oid) => {
+      if (allObjs[oid]) {
+        updates[`${oid}/groupId`] = groupId;
+        updates[`${oid}/updatedAt`] = Date.now();
+      }
+    });
+    if (Object.keys(updates).length > 0) {
+      update(ref(database, `boards/${boardId}/objects`), updates).catch(() => {});
+    }
+    return groupId;
+  }, [user, userPermission, boardId]);
+
+  const ungroupObjects = useCallback((objectIds) => {
+    if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return;
+    const allObjs = objectsRef.current;
+    const updates = {};
+    objectIds.forEach((oid) => {
+      if (allObjs[oid]) {
+        updates[`${oid}/groupId`] = null;
+        updates[`${oid}/updatedAt`] = Date.now();
+      }
+    });
+    if (Object.keys(updates).length > 0) {
+      update(ref(database, `boards/${boardId}/objects`), updates).catch(() => {});
+    }
+  }, [user, userPermission, boardId]);
 
   const updateObject = useCallback((objectId, payload) => {
     if (userPermission !== 'edit' && userPermission !== 'owner') {
@@ -868,6 +1021,14 @@ export function BoardProvider({ children, boardId = 'default' }) {
     pasteObjects,
     createStickyNote,
     createShape,
+    createTextBox,
+    createArrow,
+    createImage,
+    createKanban,
+    createTable,
+    createCodeBlock,
+    createEmbed,
+    createMindMapNode,
     createConnector,
     createFrame,
     moveObject,
@@ -875,6 +1036,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
     resizeObject,
     deleteObject,
     clearBoard,
+    groupObjects,
+    ungroupObjects,
     updateCursor,
     setOnline,
     activeEdits,

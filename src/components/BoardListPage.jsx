@@ -3,6 +3,7 @@ import { useUser } from '@clerk/clerk-react';
 import { ref, onValue, set, push } from 'firebase/database';
 import { database } from '../lib/firebase';
 import { showToast } from './Toast';
+import TemplatePickerModal from './TemplatePickerModal';
 
 export default function BoardListPage({ onSelectBoard }) {
   const { user } = useUser();
@@ -10,6 +11,8 @@ export default function BoardListPage({ onSelectBoard }) {
   const [sharedBoards, setSharedBoards] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [pendingBoardName, setPendingBoardName] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -64,19 +67,26 @@ export default function BoardListPage({ onSelectBoard }) {
     return () => unsubscribe();
   }, [user]);
 
-  const handleCreateBoard = async () => {
+  const handleCreateBoard = () => {
     if (!newBoardName.trim()) {
       showToast('⚠️ Board name cannot be empty', 'warning');
       return;
     }
+    // Show template picker before creating
+    setPendingBoardName(newBoardName.trim());
+    setShowTemplatePicker(true);
+  };
 
+  const handleTemplateSelected = async (template) => {
+    setShowTemplatePicker(false);
+    const name = pendingBoardName || newBoardName.trim() || 'Untitled Board';
     try {
       const boardsMetaRef = ref(database, 'boardsMeta');
       const newBoardRef = push(boardsMetaRef);
       const boardId = newBoardRef.key;
 
       await set(newBoardRef, {
-        name: newBoardName.trim(),
+        name,
         ownerId: user.id,
         ownerName: user.firstName || user.emailAddresses[0]?.emailAddress || 'User',
         createdAt: Date.now(),
@@ -84,11 +94,20 @@ export default function BoardListPage({ onSelectBoard }) {
         sharedWith: {},
       });
 
-      showToast('✅ Board created successfully', 'success');
+      // Write template objects if any
+      if (template.objects && template.objects.length > 0) {
+        const updates = {};
+        template.objects.forEach((obj) => {
+          const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          updates[id] = { ...obj, updatedAt: Date.now() };
+        });
+        await set(ref(database, `boards/${boardId}/objects`), updates);
+      }
+
+      showToast('✅ Board created', 'success');
       setNewBoardName('');
+      setPendingBoardName('');
       setIsCreating(false);
-      
-      // Navigate to new board
       onSelectBoard(boardId);
     } catch (error) {
       console.error('Error creating board:', error);
@@ -367,6 +386,13 @@ export default function BoardListPage({ onSelectBoard }) {
           </section>
         )}
       </div>
+
+      {showTemplatePicker && (
+        <TemplatePickerModal
+          onSelect={handleTemplateSelected}
+          onCancel={() => setShowTemplatePicker(false)}
+        />
+      )}
     </div>
   );
 }

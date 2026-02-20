@@ -40,6 +40,8 @@ export default function BoardControlBar({
   totalObjects,
   visibleObjects,
   stageRef,
+  showGrid,
+  onToggleGrid,
 }) {
   const { editingNoteId, selectedIds } = useBoard();
 
@@ -130,6 +132,19 @@ export default function BoardControlBar({
         Fit All
       </button>
       <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
+      <button
+        onClick={onToggleGrid}
+        title={showGrid ? 'Hide grid' : 'Show snap grid'}
+        style={{
+          ...buttonStyle,
+          background: showGrid ? 'rgba(102,126,234,0.2)' : 'rgba(59,130,246,0.1)',
+          borderColor: showGrid ? '#667eea' : 'rgba(59,130,246,0.3)',
+          color: showGrid ? '#a5b4fc' : '#93C5FD',
+          fontSize: '0.8rem',
+        }}
+      >
+        ⊞
+      </button>
       <button onClick={handleDownload} title="Download board as PNG" style={{ ...buttonStyle, fontSize: '1rem' }}>
         ⬇
       </button>

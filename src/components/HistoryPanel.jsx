@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useBoard } from '../context/BoardContext';
 
-export default function HistoryPanel() {
+export default function HistoryPanel({ collapsed }) {
   const { history, objects } = useBoard();
   const [isOpen, setIsOpen] = useState(false);
   const [filter, setFilter] = useState('all'); // 'all', 'created', 'deleted', 'updated'
@@ -38,13 +38,10 @@ export default function HistoryPanel() {
         onClick={() => setIsOpen(!isOpen)}
         className="toolbar-btn"
         title="View change history"
-        style={{
-          background: 'rgba(139, 92, 246, 0.1)',
-          borderColor: 'rgba(139, 92, 246, 0.3)',
-          color: '#C4B5FD',
-        }}
+        style={{ color: '#C4B5FD' }}
       >
-        📜 History
+        <span className="btn-icon">📜</span>
+        <span className="btn-label">History</span>
       </button>
 
       {isOpen && (

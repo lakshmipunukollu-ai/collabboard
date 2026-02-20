@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Stage, Layer, Rect } from 'react-konva';
+import { Stage, Layer, Rect, Line } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
 import StickyNote from './StickyNote';
 import BoardShape from './BoardShape';
 import Connector from './Connector';
 import Frame from './Frame';
+import TextBox from './TextBox';
+import BoardArrow from './BoardArrow';
+import BoardImage from './BoardImage';
+import KanbanObject from './KanbanObject';
+import TableObject from './TableObject';
+import CodeBlock from './CodeBlock';
+import EmbedObject from './EmbedObject';
+import MindMapNode from './MindMapNode';
 import CursorOverlay from './CursorOverlay';
 import StickyNoteEditOverlay from './StickyNoteEditOverlay';
 import BoardControlBar from './BoardControlBar';
@@ -14,6 +22,8 @@ import { showToast } from './Toast';
 
 const MIN_SCALE = 0.001; // Nearly infinite zoom out
 const MAX_SCALE = 4;
+
+const STICKY_COLORS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FECACA', '#FDE68A'];
 
 export default function Canvas() {
   const {
@@ -36,6 +46,12 @@ export default function Canvas() {
     editingNoteId,
     requestCenterView,
     setRequestCenterView,
+    createStickyNote,
+    createShape,
+    createFrame,
+    userPermission,
+    groupObjects,
+    ungroupObjects,
   } = useBoard();
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -46,6 +62,7 @@ export default function Canvas() {
   const [selectionBox, setSelectionBox] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [clipboard, setClipboard] = useState(null);
+  const [showGrid, setShowGrid] = useState(false);
   const lastPointerRef = useRef(null);
   const cursorPosRef = useRef(null);
   const selectionStartRef = useRef(null);
@@ -232,6 +249,20 @@ export default function Canvas() {
         pasteObjects();
         showToast('📋 Pasted objects', 'success');
       }
+
+      // Group: Cmd/Ctrl+G
+      if (cmdOrCtrl && !e.shiftKey && e.key === 'g' && selectedIds.size > 1) {
+        e.preventDefault();
+        groupObjects(Array.from(selectedIds));
+        showToast(`🔗 Grouped ${selectedIds.size} objects`, 'success');
+      }
+
+      // Ungroup: Cmd/Ctrl+Shift+G
+      if (cmdOrCtrl && e.shiftKey && e.key === 'g' && selectedIds.size > 0) {
+        e.preventDefault();
+        ungroupObjects(Array.from(selectedIds));
+        showToast('Ungrouped objects', 'info');
+      }
       
       // Select All: Cmd/Ctrl+A
       if (cmdOrCtrl && e.key === 'a') {
@@ -254,10 +285,62 @@ export default function Canvas() {
           showToast(`🗑️ Cleared ${count} objects`, 'success');
         }
       }
+
+      // Tool shortcuts (only when canEdit and no modifier key)
+      const canEdit = userPermission === 'edit' || userPermission === 'owner';
+      if (!canEdit || cmdOrCtrl || e.shiftKey || e.altKey) return;
+
+      const getCenter = () => {
+        const stage = stageRef.current;
+        if (!stage) return { x: 200, y: 200 };
+        const t = stage.getAbsoluteTransform().copy().invert();
+        return t.point({ x: stage.width() / 2, y: stage.height() / 2 });
+      };
+      const getScaled = (base) => {
+        const stage = stageRef.current;
+        const s = stage ? stage.scaleX() : 1;
+        return Math.min(Math.max(1, (150 / s) / base), 200);
+      };
+
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        const { x, y } = getCenter();
+        const sf = getScaled(160);
+        createStickyNote('New note', x - 80 * sf, y - 60 * sf,
+          STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)], 160 * sf, 120 * sf);
+        showToast('📝 Sticky note (N)', 'success');
+      }
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        const { x, y } = getCenter();
+        const sf = getScaled(100);
+        createShape('rectangle', x - 50 * sf, y - 40 * sf, 100 * sf, 80 * sf);
+        showToast('◻️ Rectangle (R)', 'success');
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        const { x, y } = getCenter();
+        const sf = getScaled(100);
+        createShape('circle', x - 50 * sf, y - 50 * sf, 100 * sf, 100 * sf, '#10B981');
+        showToast('⭕ Circle (C)', 'success');
+      }
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        const { x, y } = getCenter();
+        const sf = getScaled(150);
+        createShape('line', x - 75 * sf, y - 10 * sf, 150 * sf, 20 * sf, '#F59E0B');
+        showToast('➖ Line (L)', 'success');
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        const { x, y } = getCenter();
+        createFrame(x - 300, y - 200, 600, 400, 'Frame');
+        showToast('📦 Frame (F)', 'success');
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId, scale, zoomToScale, fitAllObjects, objects, deleteObject, setClipboard]);
+  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId, scale, zoomToScale, fitAllObjects, objects, deleteObject, setClipboard, userPermission, createStickyNote, createShape, createFrame, stageRef, groupObjects, ungroupObjects]);
 
   const handleWheel = useCallback((e) => {
     e.evt.preventDefault();
@@ -423,23 +506,38 @@ export default function Canvas() {
     });
     
     return Object.entries(allObjects).filter(([, obj]) => {
-      const { x = 0, y = 0, width = 100, height = 100 } = obj;
-      const objRight = x + width;
-      const objBottom = y + height;
-      
-      // Check if object intersects viewport
-      return x < bottomRight.x && objRight > topLeft.x &&
-             y < bottomRight.y && objBottom > topLeft.y;
+      // Arrow objects use x1/y1/x2/y2 instead of x/y/width/height
+      let bx, by, bRight, bBottom;
+      if (obj.type === 'arrow' && obj.x1 != null) {
+        bx = Math.min(obj.x1, obj.x2 ?? obj.x1);
+        by = Math.min(obj.y1, obj.y2 ?? obj.y1);
+        bRight = Math.max(obj.x1, obj.x2 ?? obj.x1);
+        bBottom = Math.max(obj.y1, obj.y2 ?? obj.y1);
+      } else {
+        const { x = 0, y = 0, width = 100, height = 100 } = obj;
+        bx = x; by = y; bRight = x + width; bBottom = y + height;
+      }
+      return bx < bottomRight.x && bRight > topLeft.x &&
+             by < bottomRight.y && bBottom > topLeft.y;
     });
   }, [dimensions.width, dimensions.height]);
 
   const visibleObjects = getVisibleObjects(objects);
   const stickyNotes = visibleObjects.filter(([, obj]) => obj.type === 'sticky');
-  const shapes = visibleObjects.filter(([, obj]) => 
+  const shapes = visibleObjects.filter(([, obj]) =>
     obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'oval'
   );
   const connectors = visibleObjects.filter(([, obj]) => obj.type === 'connector');
   const frames = visibleObjects.filter(([, obj]) => obj.type === 'frame');
+  const textBoxes = visibleObjects.filter(([, obj]) => obj.type === 'textbox');
+  const arrows = visibleObjects.filter(([, obj]) => obj.type === 'arrow');
+  const images = visibleObjects.filter(([, obj]) => obj.type === 'image');
+  const mindMapNodes = visibleObjects.filter(([, obj]) => obj.type === 'mindmap');
+  // HTML overlay objects
+  const kanbans = visibleObjects.filter(([, obj]) => obj.type === 'kanban');
+  const tables = visibleObjects.filter(([, obj]) => obj.type === 'table');
+  const codeBlocks = visibleObjects.filter(([, obj]) => obj.type === 'code');
+  const embeds = visibleObjects.filter(([, obj]) => obj.type === 'embed');
   
   const totalCount = Object.keys(objects).length;
   const visibleCount = visibleObjects.length;
@@ -483,6 +581,25 @@ export default function Canvas() {
     }
   }, [selectedIds, deleteSelectedObjects]);
 
+  // Grid lines for snap-to-grid visual guide
+  const GRID_SIZE = 40; // world units
+  const gridLines = showGrid ? (() => {
+    const lines = [];
+    const transform = stageRef.current?.getAbsoluteTransform().copy().invert();
+    if (!transform) return lines;
+    const tl = transform.point({ x: 0, y: 0 });
+    const br = transform.point({ x: dimensions.width, y: dimensions.height });
+    const startX = Math.floor(tl.x / GRID_SIZE) * GRID_SIZE;
+    const startY = Math.floor(tl.y / GRID_SIZE) * GRID_SIZE;
+    for (let gx = startX; gx < br.x + GRID_SIZE; gx += GRID_SIZE) {
+      lines.push(<Line key={`v${gx}`} points={[gx, tl.y - GRID_SIZE, gx, br.y + GRID_SIZE]} stroke="rgba(255,255,255,0.06)" strokeWidth={1 / scale} listening={false} />);
+    }
+    for (let gy = startY; gy < br.y + GRID_SIZE; gy += GRID_SIZE) {
+      lines.push(<Line key={`h${gy}`} points={[tl.x - GRID_SIZE, gy, br.x + GRID_SIZE, gy]} stroke="rgba(255,255,255,0.06)" strokeWidth={1 / scale} listening={false} />);
+    }
+    return lines;
+  })() : [];
+
   return (
     <div ref={containerRef} className="canvas-container" id="canvas-overlay-root">
       <Stage
@@ -505,6 +622,8 @@ export default function Canvas() {
         style={{ cursor: isSelecting ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
       >
         <Layer>
+          {/* Grid lines (behind everything) */}
+          {gridLines}
           {/* Render connectors first (behind everything) */}
           {connectors.map(([id, obj]) => (
             <Connector key={id} id={id} data={obj} />
@@ -519,6 +638,18 @@ export default function Canvas() {
           ))}
           {shapes.map(([id, obj]) => (
             <BoardShape key={id} id={id} data={obj} />
+          ))}
+          {textBoxes.map(([id, obj]) => (
+            <TextBox key={id} id={id} data={obj} />
+          ))}
+          {arrows.map(([id, obj]) => (
+            <BoardArrow key={id} id={id} data={obj} />
+          ))}
+          {images.map(([id, obj]) => (
+            <BoardImage key={id} id={id} data={obj} />
+          ))}
+          {mindMapNodes.map(([id, obj]) => (
+            <MindMapNode key={id} id={id} data={obj} />
           ))}
           {/* Selection box overlay */}
           {isSelecting && selectionBox && (
@@ -536,6 +667,20 @@ export default function Canvas() {
           )}
         </Layer>
       </Stage>
+      {/* HTML overlay objects — rendered as DOM elements synced to canvas coordinates */}
+      {kanbans.map(([id, obj]) => (
+        <KanbanObject key={id} id={id} data={obj} scale={scale} stagePos={stagePos} />
+      ))}
+      {tables.map(([id, obj]) => (
+        <TableObject key={id} id={id} data={obj} scale={scale} stagePos={stagePos} />
+      ))}
+      {codeBlocks.map(([id, obj]) => (
+        <CodeBlock key={id} id={id} data={obj} scale={scale} stagePos={stagePos} />
+      ))}
+      {embeds.map(([id, obj]) => (
+        <EmbedObject key={id} id={id} data={obj} scale={scale} stagePos={stagePos} />
+      ))}
+
       <BoardControlBar
         scale={scale}
         onZoomChange={zoomToScale}
@@ -544,6 +689,8 @@ export default function Canvas() {
         totalObjects={totalCount}
         visibleObjects={visibleCount}
         stageRef={stageRef}
+        showGrid={showGrid}
+        onToggleGrid={() => setShowGrid((v) => !v)}
       />
       {contextMenu && (
         <ContextMenu

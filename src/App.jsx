@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser, useClerk, SignedIn, SignedOut } from '@clerk/clerk-react';
 import { ref, onValue, update, set } from 'firebase/database';
 import { database } from './lib/firebase';
@@ -21,25 +21,96 @@ import AIAssistant from './components/AIAssistant';
 import NotificationBell from './components/NotificationBell';
 import './App.css';
 
+// ─── Editable board title ─────────────────────────────────────────────────
+function EditableTitle({ boardId, boardName, canEdit }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(boardName);
+  const inputRef = useRef(null);
+
+  useEffect(() => { setDraft(boardName); }, [boardName]);
+
+  const commit = useCallback(() => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== boardName && boardId) {
+      update(ref(database, `boardsMeta/${boardId}`), { name: trimmed })
+        .catch(() => {});
+    }
+    setEditing(false);
+  }, [draft, boardName, boardId]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') commit();
+    if (e.key === 'Escape') { setDraft(boardName); setEditing(false); }
+  };
+
+  useEffect(() => {
+    if (editing && inputRef.current) inputRef.current.select();
+  }, [editing]);
+
+  if (editing && canEdit) {
+    return (
+      <input
+        ref={inputRef}
+        className="app-title-input"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKeyDown}
+        maxLength={60}
+      />
+    );
+  }
+
+  return (
+    <h1
+      className="app-title"
+      onClick={() => canEdit && setEditing(true)}
+      title={canEdit ? 'Click to rename' : boardName}
+    >
+      {boardName || 'CollabBoard'}
+    </h1>
+  );
+}
+
+// ─── Board layout ─────────────────────────────────────────────────────────
 function BoardLayout({ boardId, onBackToList }) {
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const [boardName, setBoardName] = useState('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [hasAccess, setHasAccess] = useState(null); // null = checking, true = has access, false = no access
-  const [userPermission, setUserPermission] = useState('view'); // 'view', 'edit', or 'owner'
+  const [hasAccess, setHasAccess] = useState(null);
+  const [userPermission, setUserPermission] = useState('view');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebar-collapsed') === 'true'; }
+    catch { return false; }
+  });
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    try { return localStorage.getItem('theme') !== 'light'; }
+    catch { return true; }
+  });
+
+  // Apply theme to <html>
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+    try { localStorage.setItem('theme', isDarkMode ? 'dark' : 'light'); } catch {}
+  }, [isDarkMode]);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      try { localStorage.setItem('sidebar-collapsed', String(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!boardId || !user) return;
 
-    // Listen to board metadata to check access and get board name
     const boardMetaRef = ref(database, `boardsMeta/${boardId}`);
     const unsubscribe = onValue(boardMetaRef, (snapshot) => {
       const data = snapshot.val();
-      
+
       if (!data) {
-        // Board metadata doesn't exist - create it (for legacy boards or 'default' board)
-        console.log('Creating missing boardsMeta for:', boardId);
         set(ref(database, `boardsMeta/${boardId}`), {
           name: boardId === 'default' ? 'Board 2' : 'Untitled Board',
           ownerId: user.id,
@@ -47,60 +118,43 @@ function BoardLayout({ boardId, onBackToList }) {
           createdAt: Date.now(),
           lastModified: Date.now(),
           sharedWith: {},
-        }).then(() => {
-          console.log('✅ Board metadata created');
-        }).catch(err => {
+        }).catch((err) => {
           console.error('Failed to create board metadata:', err);
           setHasAccess(false);
           setBoardName('Board Not Found');
         });
-        
-        // Assume ownership for now
         setHasAccess(true);
         setUserPermission('owner');
         setBoardName(boardId === 'default' ? 'Board 2' : 'Untitled Board');
         return;
       }
 
-      // Check if user is owner or has shared access
       const isOwner = data.ownerId === user.id;
       const userEmail = user.emailAddresses[0]?.emailAddress?.toLowerCase();
-      
-      // Sanitize email for Firebase key lookup (same as in BoardShareModal)
       const sanitizedEmail = userEmail ? userEmail
-        .replace(/\./g, ',')
-        .replace(/@/g, '_at_')
-        .replace(/#/g, '_hash_')
-        .replace(/\$/g, '_dollar_')
-        .replace(/\[/g, '_lbracket_')
-        .replace(/\]/g, '_rbracket_') : null;
-      
-      const sharedAccessById = data.sharedWith && data.sharedWith[user.id];
-      const sharedAccessByEmail = data.sharedWith && sanitizedEmail && data.sharedWith[sanitizedEmail];
+        .replace(/\./g, ',').replace(/@/g, '_at_').replace(/#/g, '_hash_')
+        .replace(/\$/g, '_dollar_').replace(/\[/g, '_lbracket_').replace(/\]/g, '_rbracket_')
+        : null;
+
+      const sharedById = data.sharedWith && data.sharedWith[user.id];
+      const sharedByEmail = data.sharedWith && sanitizedEmail && data.sharedWith[sanitizedEmail];
 
       if (isOwner) {
-        setHasAccess(true);
-        setUserPermission('owner');
+        setHasAccess(true); setUserPermission('owner');
         setBoardName(data.name || 'Untitled Board');
-      } else if (sharedAccessById) {
-        setHasAccess(true);
-        setUserPermission(sharedAccessById.permission || 'view');
+      } else if (sharedById) {
+        setHasAccess(true); setUserPermission(sharedById.permission || 'view');
         setBoardName(data.name || 'Untitled Board');
-      } else if (sharedAccessByEmail) {
-        setHasAccess(true);
-        setUserPermission(sharedAccessByEmail.permission || 'view');
+      } else if (sharedByEmail) {
+        setHasAccess(true); setUserPermission(sharedByEmail.permission || 'view');
         setBoardName(data.name || 'Untitled Board');
       } else {
-        setHasAccess(false);
-        setUserPermission('view');
+        setHasAccess(false); setUserPermission('view');
         setBoardName('Access Denied');
       }
 
-      // Update lastModified when user opens the board (only if they have access)
-      if (isOwner || sharedAccessById || sharedAccessByEmail) {
-        update(ref(database, `boardsMeta/${boardId}`), {
-          lastModified: Date.now(),
-        }).catch(err => console.error('Failed to update lastModified:', err));
+      if (isOwner || sharedById || sharedByEmail) {
+        update(ref(database, `boardsMeta/${boardId}`), { lastModified: Date.now() }).catch(() => {});
       }
     });
 
@@ -109,13 +163,10 @@ function BoardLayout({ boardId, onBackToList }) {
 
   if (!isLoaded || hasAccess === null) {
     return (
-      <div className="app-loading">
-        <p>Loading...</p>
-      </div>
+      <div className="app-loading"><p>Loading…</p></div>
     );
   }
 
-  // Show access denied message if user doesn't have permission
   if (hasAccess === false) {
     return (
       <div className="app-loading" style={{ textAlign: 'center' }}>
@@ -126,14 +177,8 @@ function BoardLayout({ boardId, onBackToList }) {
         <button
           onClick={onBackToList}
           style={{
-            padding: '12px 24px',
-            background: '#667eea',
-            border: 'none',
-            borderRadius: 8,
-            color: 'white',
-            fontSize: '1rem',
-            fontWeight: 600,
-            cursor: 'pointer',
+            padding: '12px 24px', background: '#667eea', border: 'none',
+            borderRadius: 8, color: 'white', fontSize: '1rem', fontWeight: 600, cursor: 'pointer',
           }}
         >
           ← Back to My Boards
@@ -142,71 +187,63 @@ function BoardLayout({ boardId, onBackToList }) {
     );
   }
 
+  const canEdit = userPermission === 'edit' || userPermission === 'owner';
+
   return (
     <div className="app-layout">
       <ConnectionStatus />
       <Toast />
       <HelpPanel />
-      <BoardShareModal 
-        boardId={boardId} 
-        isOpen={isShareModalOpen} 
-        onClose={() => setIsShareModalOpen(false)} 
-      />
+      <BoardShareModal boardId={boardId} isOpen={isShareModalOpen} onClose={() => setIsShareModalOpen(false)} />
+
       {userPermission === 'view' && (
         <div style={{
-          position: 'fixed',
-          top: 60,
-          left: 0,
-          right: 0,
-          background: '#fbbf24',
-          color: '#92400e',
-          padding: '10px 16px',
-          textAlign: 'center',
-          fontSize: '0.875rem',
-          fontWeight: 600,
-          zIndex: 1000,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          position: 'fixed', top: 52, left: 0, right: 0,
+          background: '#fbbf24', color: '#92400e',
+          padding: '8px 16px', textAlign: 'center',
+          fontSize: '0.8rem', fontWeight: 600, zIndex: 1000,
         }}>
           👁️ View-only access. Contact the board owner to request edit permissions.
         </div>
       )}
+
       <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             onClick={onBackToList}
-            title="Back to board list"
+            title="Back to boards"
             style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#94A3B8',
-              fontSize: '1.5rem',
-              cursor: 'pointer',
-              padding: 4,
-              display: 'flex',
-              alignItems: 'center',
+              background: 'transparent', border: 'none',
+              color: 'var(--text-muted)', fontSize: '1.3rem',
+              cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center',
             }}
           >
             ←
           </button>
-          <h1 className="app-title">{boardName || 'CollabBoard'}</h1>
+          <EditableTitle boardId={boardId} boardName={boardName} canEdit={canEdit} />
         </div>
+
         <div className="header-actions">
           <AutoSaveIndicator />
           <EnhancedPresence />
           <NotificationBell />
+
+          {/* Dark / light mode toggle */}
+          <button
+            className="theme-toggle-btn"
+            onClick={() => setIsDarkMode((v) => !v)}
+            title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDarkMode ? '☀️' : '🌙'}
+          </button>
+
           <button
             onClick={() => setIsShareModalOpen(true)}
             title="Share board"
             style={{
-              padding: '8px 16px',
-              background: '#667eea',
-              border: 'none',
-              borderRadius: 6,
-              color: 'white',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              marginRight: 16,
+              padding: '6px 14px', background: '#667eea', border: 'none',
+              borderRadius: 6, color: 'white', fontSize: '0.8rem',
+              fontWeight: 600, cursor: 'pointer',
             }}
           >
             🔗 Share
@@ -214,43 +251,37 @@ function BoardLayout({ boardId, onBackToList }) {
           <span className="user-name">
             {user?.firstName || user?.emailAddresses[0]?.emailAddress || 'User'}
           </span>
-          <button 
-            type="button" 
-            className="signout-btn" 
-            onClick={() => signOut()}
-          >
+          <button type="button" className="signout-btn" onClick={() => signOut()}>
             Sign out
           </button>
         </div>
       </header>
+
       <div className="main-content">
-        <aside className="sidebar">
-          <Toolbar />
-          <PresencePanel />
+        <aside className={`sidebar${sidebarCollapsed ? ' collapsed' : ''}`}>
+          <Toolbar isCollapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
+          {!sidebarCollapsed && <PresencePanel />}
         </aside>
         <main className="canvas-wrapper">
           <Canvas />
           <PropertiesPanel />
         </main>
       </div>
+
       <AlignmentTools />
       <AIAssistant />
     </div>
   );
 }
 
+// ─── Root App ─────────────────────────────────────────────────────────────
 export default function App() {
   const currentPath = window.location.pathname;
   const [selectedBoardId, setSelectedBoardId] = useState(null);
 
-  // Parse board ID from URL (/board/:boardId)
   useEffect(() => {
     const match = currentPath.match(/^\/board\/([^/]+)/);
-    if (match) {
-      setSelectedBoardId(match[1]);
-    } else {
-      setSelectedBoardId(null);
-    }
+    setSelectedBoardId(match ? match[1] : null);
   }, [currentPath]);
 
   const handleSelectBoard = (boardId) => {
@@ -263,7 +294,6 @@ export default function App() {
     setSelectedBoardId(null);
   };
 
-  // Handle sign-up page routing
   if (currentPath === '/sign-up') {
     return (
       <>
@@ -276,14 +306,11 @@ export default function App() {
             <BoardListPage onSelectBoard={handleSelectBoard} />
           )}
         </SignedIn>
-        <SignedOut>
-          <SignUpPage />
-        </SignedOut>
+        <SignedOut><SignUpPage /></SignedOut>
       </>
     );
   }
 
-  // Default: sign-in page or board list/board
   return (
     <>
       <SignedIn>
@@ -295,9 +322,7 @@ export default function App() {
           <BoardListPage onSelectBoard={handleSelectBoard} />
         )}
       </SignedIn>
-      <SignedOut>
-        <SignInPage />
-      </SignedOut>
+      <SignedOut><SignInPage /></SignedOut>
     </>
   );
 }

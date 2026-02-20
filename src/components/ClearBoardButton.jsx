@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useBoard } from '../context/BoardContext';
 import { showToast } from './Toast';
 
-export default function ClearBoardButton() {
+export default function ClearBoardButton({ collapsed }) {
   const { objects, deleteObject } = useBoard();
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -26,13 +26,10 @@ export default function ClearBoardButton() {
         className="toolbar-btn"
         onClick={() => setShowConfirm(true)}
         title="Clear entire board (Cmd/Ctrl+Shift+Delete)"
-        style={{
-          background: 'rgba(239, 68, 68, 0.1)',
-          borderColor: 'rgba(239, 68, 68, 0.3)',
-          color: '#FCA5A5',
-        }}
+        style={{ color: '#FCA5A5' }}
       >
-        🗑️ Clear Board
+        <span className="btn-icon">🗑️</span>
+        <span className="btn-label">Clear Board</span>
       </button>
 
       {showConfirm && (

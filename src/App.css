@@ -1,3 +1,40 @@
+/* ─── CSS Variables (dark theme default) ─────────────────────────────────── */
+:root {
+  --bg-base:      #0f172a;
+  --bg-surface:   #1e293b;
+  --bg-elevated:  #334155;
+  --border:       #334155;
+  --border-faint: rgba(255,255,255,0.08);
+  --text-primary: #f1f5f9;
+  --text-muted:   #94a3b8;
+  --text-faint:   #64748b;
+  --accent:       #667eea;
+  --accent-hover: #4f46e5;
+  --btn-bg:       #6366f1;
+  --btn-hover:    #4f46e5;
+  --canvas-bg:    #1e293b;
+  --canvas-dot:   #334155;
+  --sidebar-w:    200px;
+  --sidebar-collapsed-w: 52px;
+}
+
+[data-theme="light"] {
+  --bg-base:      #f8fafc;
+  --bg-surface:   #ffffff;
+  --bg-elevated:  #e2e8f0;
+  --border:       #cbd5e1;
+  --border-faint: rgba(0,0,0,0.06);
+  --text-primary: #0f172a;
+  --text-muted:   #475569;
+  --text-faint:   #94a3b8;
+  --accent:       #6366f1;
+  --accent-hover: #4f46e5;
+  --btn-bg:       #6366f1;
+  --btn-hover:    #4f46e5;
+  --canvas-bg:    #f1f5f9;
+  --canvas-dot:   #cbd5e1;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -9,54 +46,90 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ─── App layout ─────────────────────────────────────────────────────────── */
 .app-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: #0f172a;
-  color: #94a3b8;
+  background: var(--bg-base);
+  color: var(--text-muted);
 }
 
 .app-layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #0f172a;
+  background: var(--bg-base);
 }
 
+/* ─── Header ─────────────────────────────────────────────────────────────── */
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
-  background: #1e293b;
-  border-bottom: 1px solid #334155;
+  padding: 8px 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  height: 52px;
+  flex-shrink: 0;
+  z-index: 100;
 }
 
 .app-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 3px 6px;
+  transition: background 0.15s;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-title:hover {
+  background: var(--bg-elevated);
+}
+
+.app-title-input {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 3px 6px;
+  outline: none;
+  max-width: 260px;
+  width: 200px;
+  font-family: inherit;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .user-name {
-  font-size: 0.875rem;
-  color: #94a3b8;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .signout-btn {
-  padding: 6px 12px;
-  font-size: 0.875rem;
-  color: #f1f5f9;
-  background: #334155;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -66,60 +139,237 @@ body {
   background: #475569;
 }
 
+/* ─── Dark/light toggle ──────────────────────────────────────────────────── */
+.theme-toggle-btn {
+  background: transparent;
+  border: 1px solid var(--border-faint);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 5px 8px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+.theme-toggle-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* ─── Main content ───────────────────────────────────────────────────────── */
 .main-content {
   display: flex;
   flex: 1;
   overflow: hidden;
 }
 
+/* ─── Sidebar ────────────────────────────────────────────────────────────── */
 .sidebar {
-  width: 220px;
-  padding: 16px;
-  background: #1e293b;
-  border-right: 1px solid #334155;
+  width: var(--sidebar-w);
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 0;
   position: relative;
   z-index: 10;
+  flex-shrink: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.2s ease;
 }
 
+.sidebar.collapsed {
+  width: var(--sidebar-collapsed-w);
+}
+
+/* ─── Toolbar ────────────────────────────────────────────────────────────── */
 .toolbar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
+  padding: 8px 6px;
   position: relative;
   z-index: 10;
 }
 
-.toolbar-btn {
-  padding: 10px 14px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #f1f5f9;
-  background: #6366f1;
+/* Collapse toggle at top */
+.toolbar-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 28px;
+  background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-bottom: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+.toolbar-collapse-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* Section labels */
+.toolbar-section-label {
+  color: var(--text-faint);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 6px 8px 3px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Compact toolbar buttons */
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  height: 32px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.toolbar-btn .btn-icon {
+  font-size: 0.95rem;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.toolbar-btn .btn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsed: hide labels, center icons */
+.toolbar.is-collapsed .toolbar-btn {
+  justify-content: center;
+  padding: 6px;
+}
+.toolbar.is-collapsed .btn-label,
+.toolbar.is-collapsed .toolbar-section-label {
+  display: none;
+}
+.toolbar.is-collapsed .toolbar-collapse-btn {
+  font-size: 0.8rem;
+}
+
+/* Divider */
+.toolbar-divider {
+  height: 1px;
+  background: var(--border-faint);
+  margin: 4px 0;
+}
+
+/* ─── Canvas ─────────────────────────────────────────────────────────────── */
+.canvas-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.canvas-container {
+  position: absolute;
+  inset: 0;
+  background: var(--canvas-bg);
+  background-image: radial-gradient(circle at 1px 1px, var(--canvas-dot) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.cursor-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* ─── Presence bubbles ───────────────────────────────────────────────────── */
+.presence-bubbles {
+  display: flex;
+  align-items: center;
+  gap: -6px;
+}
+.presence-bubble {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: white;
+  margin-left: -6px;
+  flex-shrink: 0;
+  cursor: default;
+  text-transform: uppercase;
+}
+.presence-bubble:first-child {
+  margin-left: 0;
+}
+.presence-overflow-pill {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 2px solid var(--bg-surface);
+  border-radius: 14px;
+  padding: 0 7px;
+  height: 28px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  margin-left: -6px;
   cursor: pointer;
 }
 
-.toolbar-btn:hover {
-  background: #4f46e5;
-}
-
+/* ─── Presence panel (legacy, used in sidebar) ───────────────────────────── */
 .presence-panel {
-  background: #0f172a;
+  background: var(--bg-base);
   border-radius: 8px;
-  padding: 12px;
+  padding: 8px;
 }
 
 .presence-header {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .presence-list {
@@ -129,12 +379,12 @@ body {
 }
 
 .presence-item {
-  font-size: 0.875rem;
-  color: #e2e8f0;
-  padding: 4px 0;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  padding: 3px 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .presence-item.you {
@@ -142,8 +392,8 @@ body {
 }
 
 .presence-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #22c55e;
   flex-shrink: 0;
@@ -153,18 +403,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
   background: #312e81;
   border-radius: 6px;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: #c7d2fe;
 }
 
 .presence-unfollow {
-  padding: 4px 10px;
-  font-size: 0.75rem;
+  padding: 3px 8px;
+  font-size: 0.7rem;
   color: #e2e8f0;
   background: #475569;
   border: none;
@@ -197,26 +447,32 @@ body {
   font-weight: 500;
 }
 
-.canvas-wrapper {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar {
+    width: var(--sidebar-collapsed-w) !important;
+  }
+  .sidebar .btn-label,
+  .sidebar .toolbar-section-label {
+    display: none;
+  }
+  .sidebar .toolbar-btn {
+    justify-content: center;
+    padding: 6px;
+  }
+  .user-name {
+    display: none;
+  }
+  .app-title {
+    max-width: 140px;
+  }
 }
 
-.canvas-container {
-  position: absolute;
-  inset: 0;
-  background: #1e293b;
-  background-image:
-    radial-gradient(circle at 1px 1px, #334155 1px, transparent 0);
-  background-size: 24px 24px;
+@media (max-width: 480px) {
+  .app-header {
+    padding: 6px 10px;
+  }
+  .header-actions {
+    gap: 5px;
+  }
 }
-
-.cursor-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-/* No custom login screen styles - let Clerk handle everything */

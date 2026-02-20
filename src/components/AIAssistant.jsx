@@ -4,6 +4,7 @@ import { ref, set, remove, onValue } from 'firebase/database';
 import { database } from '../lib/firebase';
 import { useBoard } from '../context/BoardContext';
 import { showToast } from './Toast';
+import { findSkill } from '../sdk/skills/index.js';
 
 const STICKY_COLORS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FECACA', '#FDE68A'];
 const SHAPE_RANDOM_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#14B8A6', '#A855F7', '#E11D48'];
@@ -476,6 +477,39 @@ export default function AIAssistant() {
             if (id) createdIdsThisBatch.push(id);
           });
           showToast('Retrospective board created', 'success');
+        } else if (action.type === 'addFlowchart') {
+          const steps = action.steps ?? ['Start', 'Step 1', 'Step 2', 'End'];
+          const sw = 180;
+          const sh = 60;
+          const gap = 60;
+          const totalH = steps.length * sh + (steps.length - 1) * gap;
+          const placement = findEmptyPlacement(sw, totalH);
+          const startX = placement.x - sw / 2;
+          const startY = placement.y - totalH / 2;
+          const shapeIds = [];
+          steps.forEach((stepLabel, i) => {
+            const y = startY + i * (sh + gap);
+            const isEnd = i === steps.length - 1;
+            const isStart = i === 0;
+            const shapeType = (isStart || isEnd) ? 'oval' : 'rectangle';
+            const color = isStart ? '#10B981' : isEnd ? '#EF4444' : '#6366F1';
+            const id = createShape(shapeType, startX, y, sw, sh, color);
+            if (id) {
+              shapeIds.push(id);
+              createdIdsThisBatch.push(id);
+              // Update text label after creation
+              requestAnimationFrame(() => setTimeout(() => {
+                if (updateObject) updateObject(id, { label: stepLabel });
+              }, 100));
+            }
+          });
+          // Connect all shapes in sequence
+          requestAnimationFrame(() => setTimeout(() => {
+            for (let i = 0; i < shapeIds.length - 1; i++) {
+              createConnector(shapeIds[i], shapeIds[i + 1], 'arrow');
+            }
+          }, 200));
+          showToast(`Flowchart "${action.title ?? ''}" created (${steps.length} steps)`, 'success');
         }
       } catch (err) {
         console.error(`AI action error [type=${action?.type}]:`, err);
@@ -539,6 +573,20 @@ export default function AIAssistant() {
         }
       }
 
+      // Check for a matching skill to inject a structured system prompt
+      const boardState = getBoardState();
+      const skill = findSkill(input.trim());
+      let enrichedMessages = [...messages, userMessage];
+      if (skill) {
+        const skillPrompt = skill.buildPrompt(input.trim(), boardState || []);
+        // Prepend a system-level instruction via a leading user message the AI reads as context
+        enrichedMessages = [
+          { role: 'user', content: `[SKILL:${skill.name}] ${skillPrompt}` },
+          ...messages,
+          userMessage,
+        ];
+      }
+
       const response = await fetch(functionUrl, {
         method: 'POST',
         headers: {
@@ -546,9 +594,9 @@ export default function AIAssistant() {
           'Authorization': `Bearer ${token || 'emulator-session'}`,
         },
         body: JSON.stringify({
-          messages: [...messages, userMessage],
+          messages: enrichedMessages,
           model: 'gpt-4o-mini',
-          boardState: getBoardState(),
+          boardState,
         }),
       });
 
@@ -737,6 +785,36 @@ export default function AIAssistant() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Slash command hints */}
+      {input.startsWith('/') && (
+        <div style={{
+          padding: '6px 12px',
+          background: '#0f172a',
+          borderTop: '1px solid #1e293b',
+          fontSize: '0.72rem',
+          color: '#64748b',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '6px 12px',
+        }}>
+          {[
+            '/summarize', '/brainstorm [topic]', '/generate kanban [topic]',
+            '/add flowchart [process]', '/explain', '/schema [app]',
+          ].map((cmd) => (
+            <span
+              key={cmd}
+              style={{
+                cursor: 'pointer',
+                color: input && cmd.startsWith(input) ? '#93C5FD' : '#64748b',
+              }}
+              onClick={() => setInput(cmd.split(' [')[0] + ' ')}
+            >
+              {cmd}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div style={{
         padding: 16,
@@ -754,7 +832,7 @@ export default function AIAssistant() {
               sendMessage();
             }
           }}
-          placeholder="Ask me anything... (paste with Ctrl+V / Cmd+V)"
+          placeholder="Ask anything or type / for commands…"
           disabled={isLoading}
           rows={2}
           style={{
