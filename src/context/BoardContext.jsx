@@ -123,6 +123,12 @@ export function BoardProvider({ children, boardId = 'default' }) {
   const [presence, setPresence] = useState({});
   const [followUserId, setFollowUserId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [snapToGrid, setSnapToGridState] = useState(false);
+  const snapToGridRef = useRef(false);
+  const setSnapToGrid = useCallback((v) => {
+    snapToGridRef.current = v;
+    setSnapToGridState(v);
+  }, []);
   // Track which objects are being edited by which user
   const [activeEdits, setActiveEdits] = useState({}); // { objectId: { userId, timestamp } }
   const [history, setHistory] = useState([]); // Change history
@@ -542,6 +548,9 @@ export function BoardProvider({ children, boardId = 'default' }) {
     if (userPermission !== 'edit' && userPermission !== 'owner') {
       return;
     }
+    const snap = (v) => snapToGridRef.current ? Math.round(v / 40) * 40 : v;
+    x = snap(x);
+    y = snap(y);
     const currentObj = objectsRef.current[objectId] || {};
     
     // Check if object is being placed inside a frame
@@ -1031,6 +1040,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
     createMindMapNode,
     createConnector,
     createFrame,
+    snapToGrid,
+    setSnapToGrid,
     moveObject,
     updateObject,
     resizeObject,

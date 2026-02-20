@@ -42,6 +42,7 @@ export default function BoardControlBar({
   stageRef,
   showGrid,
   onToggleGrid,
+  onPrint,
 }) {
   const { editingNoteId, selectedIds } = useBoard();
 
@@ -147,6 +148,9 @@ export default function BoardControlBar({
       </button>
       <button onClick={handleDownload} title="Download board as PNG" style={{ ...buttonStyle, fontSize: '1rem' }}>
         ⬇
+      </button>
+      <button onClick={onPrint} title="Print board (⌘P)" style={{ ...buttonStyle, fontSize: '1rem' }}>
+        🖨
       </button>
       {totalObjects !== visibleObjects && (
         <>

@@ -52,6 +52,7 @@ export default function Canvas() {
     userPermission,
     groupObjects,
     ungroupObjects,
+    setSnapToGrid,
   } = useBoard();
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -171,6 +172,25 @@ export default function Canvas() {
     showToast(`🔍 Fit ${Object.keys(objects).length} objects`, 'success');
   }, [objects, dimensions.width, dimensions.height]);
 
+  const handlePrint = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) { showToast('Canvas not ready', 'error'); return; }
+    try {
+      const dataUrl = stage.toDataURL({ pixelRatio: 2 });
+      const win = window.open('', '_blank');
+      if (!win) { showToast('Allow pop-ups to print', 'warning'); return; }
+      win.document.write(`<!DOCTYPE html><html><head><title>Board Print</title>
+        <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#fff}
+        img{width:100%;height:auto;display:block}
+        @media print{img{width:100%;page-break-inside:avoid}}</style></head>
+        <body><img src="${dataUrl}" onload="window.print();window.close()"/></body></html>`);
+      win.document.close();
+    } catch (err) {
+      console.error('Print error:', err);
+      showToast('Print failed', 'error');
+    }
+  }, [stageRef]);
+
   // Global keyboard handlers for selection operations and zoom
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -286,6 +306,13 @@ export default function Canvas() {
         }
       }
 
+      // Print: Cmd/Ctrl+P
+      if (cmdOrCtrl && e.key === 'p') {
+        e.preventDefault();
+        handlePrint();
+        return;
+      }
+
       // Tool shortcuts (only when canEdit and no modifier key)
       const canEdit = userPermission === 'edit' || userPermission === 'owner';
       if (!canEdit || cmdOrCtrl || e.shiftKey || e.altKey) return;
@@ -340,7 +367,7 @@ export default function Canvas() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId, scale, zoomToScale, fitAllObjects, objects, deleteObject, setClipboard, userPermission, createStickyNote, createShape, createFrame, stageRef, groupObjects, ungroupObjects]);
+  }, [selectedIds, deleteSelectedObjects, duplicateSelectedObjects, copySelectedObjects, pasteObjects, editingNoteId, scale, zoomToScale, fitAllObjects, objects, deleteObject, setClipboard, userPermission, createStickyNote, createShape, createFrame, stageRef, groupObjects, ungroupObjects, handlePrint]);
 
   const handleWheel = useCallback((e) => {
     e.evt.preventDefault();
@@ -651,20 +678,7 @@ export default function Canvas() {
           {mindMapNodes.map(([id, obj]) => (
             <MindMapNode key={id} id={id} data={obj} />
           ))}
-          {/* Selection box overlay */}
-          {isSelecting && selectionBox && (
-            <Rect
-              x={selectionBox.x}
-              y={selectionBox.y}
-              width={selectionBox.width}
-              height={selectionBox.height}
-              fill="rgba(59, 130, 246, 0.1)"
-              stroke="#3B82F6"
-              strokeWidth={2 / scale}
-              dash={[10 / scale, 5 / scale]}
-              listening={false}
-            />
-          )}
+          {/* (selection box drawn as DOM div below, outside Konva stage) */}
         </Layer>
       </Stage>
       {/* HTML overlay objects — rendered as DOM elements synced to canvas coordinates */}
@@ -681,6 +695,24 @@ export default function Canvas() {
         <EmbedObject key={id} id={id} data={obj} scale={scale} stagePos={stagePos} />
       ))}
 
+      {/* Selection box — rendered as DOM div so it stays in screen coordinates */}
+      {isSelecting && selectionBox && selectionBox.width > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            left: selectionBox.x,
+            top: selectionBox.y,
+            width: selectionBox.width,
+            height: selectionBox.height,
+            border: '2px dashed #3B82F6',
+            background: 'rgba(59,130,246,0.08)',
+            pointerEvents: 'none',
+            zIndex: 5,
+            borderRadius: 2,
+          }}
+        />
+      )}
+
       <BoardControlBar
         scale={scale}
         onZoomChange={zoomToScale}
@@ -690,7 +722,8 @@ export default function Canvas() {
         visibleObjects={visibleCount}
         stageRef={stageRef}
         showGrid={showGrid}
-        onToggleGrid={() => setShowGrid((v) => !v)}
+        onToggleGrid={() => setShowGrid((v) => { setSnapToGrid(!v); return !v; })}
+        onPrint={handlePrint}
       />
       {contextMenu && (
         <ContextMenu
