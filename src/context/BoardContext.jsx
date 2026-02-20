@@ -597,6 +597,21 @@ export function BoardProvider({ children, boardId = 'default' }) {
     setSelectedIds(new Set());
   }, [selectedIds, deleteObject]);
 
+  const clearBoard = useCallback(() => {
+    if (!user) return;
+    if (userPermission !== 'edit' && userPermission !== 'owner') return;
+    setOptimisticUpdates({});
+    setFirebaseObjects({});
+    setSelectedIds(new Set());
+    set(ref(database, `boards/${boardId}/objects`), null)
+      .then(() => {
+        // Re-clear after Firebase confirms, in case optimistic state re-populated
+        setOptimisticUpdates({});
+        setFirebaseObjects({});
+      })
+      .catch((err) => console.error('❌ clearBoard failed:', err));
+  }, [user, userPermission, boardId]);
+
   const toggleSelection = useCallback((objectId, isShiftKey) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -833,6 +848,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
   }, [createShape, createStickyNote, setDeferPan]);
 
   const value = {
+    boardId,
     objects,
     getBoardState,
     cursors,
@@ -858,6 +874,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
     updateObject,
     resizeObject,
     deleteObject,
+    clearBoard,
     updateCursor,
     setOnline,
     activeEdits,

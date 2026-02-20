@@ -15,7 +15,7 @@ const barStyle = {
   flexDirection: 'row',
   alignItems: 'center',
   gap: 8,
-  zIndex: 1000,
+  zIndex: 10,
   boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
   backdropFilter: 'blur(10px)',
 };
@@ -99,36 +99,39 @@ export default function BoardControlBar({
         <span>{mode}</span>
       </div>
       <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
-      <button onClick={() => onZoomChange(0.5)} title="Zoom to 50%" style={buttonStyle}>
-        50%
+      <button
+        onClick={() => onZoomChange(Math.max(0.1, scale - 0.1))}
+        title="Zoom out"
+        style={{ ...buttonStyle, padding: '4px 8px', fontSize: '1rem' }}
+      >
+        −
       </button>
-      <button onClick={() => onZoomChange(1)} title="Zoom to 100% (Press 1)" style={buttonStyle}>
-        100%
+      <input
+        type="range"
+        min={10}
+        max={400}
+        step={5}
+        value={zoomPercent}
+        onChange={(e) => onZoomChange(Number(e.target.value) / 100)}
+        title={`Zoom: ${zoomPercent}%`}
+        style={{ width: 100, accentColor: '#667eea', cursor: 'pointer' }}
+      />
+      <button
+        onClick={() => onZoomChange(Math.min(4.0, scale + 0.1))}
+        title="Zoom in"
+        style={{ ...buttonStyle, padding: '4px 8px', fontSize: '1rem' }}
+      >
+        +
       </button>
-      <button onClick={() => onZoomChange(2)} title="Zoom to 200% (Press 2)" style={buttonStyle}>
-        200%
-      </button>
+      <div style={{ color: '#94A3B8', fontSize: '0.75rem', fontWeight: 600, minWidth: 36, textAlign: 'center' }}>
+        {zoomPercent}%
+      </div>
       <button onClick={onFitAll} title="Fit all (Press 0)" style={buttonStyle}>
         Fit All
       </button>
-      <div
-        style={{
-          padding: '4px 10px',
-          color: '#94A3B8',
-          fontSize: '0.75rem',
-          fontWeight: 600,
-          minWidth: 40,
-          textAlign: 'center',
-        }}
-      >
-        {zoomPercent}%
-      </div>
       <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
-      <button onClick={handleDownload} title="Download board as PNG" style={buttonStyle}>
-        ⬇ Download
-      </button>
-      <button onClick={handleDownload} title="Download board as PNG" style={buttonStyle}>
-        ⬇ PNG
+      <button onClick={handleDownload} title="Download board as PNG" style={{ ...buttonStyle, fontSize: '1rem' }}>
+        ⬇
       </button>
       {totalObjects !== visibleObjects && (
         <>

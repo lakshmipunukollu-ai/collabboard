@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
+import { ref, set, remove, onValue } from 'firebase/database';
+import { database } from '../lib/firebase';
 import { useBoard } from '../context/BoardContext';
 import { showToast } from './Toast';
 
@@ -10,6 +12,7 @@ export default function AIAssistant() {
   const { user } = useUser();
   const { getToken } = useAuth();
   const {
+    boardId,
     objects,
     getBoardState,
     createShape,
@@ -19,6 +22,8 @@ export default function AIAssistant() {
     moveObject,
     updateObject,
     resizeObject,
+    deleteObject,
+    clearBoard,
     stageRef,
     viewportCenterRef,
     setDeferPan,
@@ -28,9 +33,21 @@ export default function AIAssistant() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [aiLock, setAiLock] = useState(null); // { userId, userName, timestamp }
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  // kept for any legacy reference; actual batch placement uses per-type row logic
   const aiPlacementOffsetIndexRef = useRef(0);
+
+  // ── aiLock listener ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!boardId) return;
+    const lockRef = ref(database, `boards/${boardId}/aiLock`);
+    const unsub = onValue(lockRef, (snap) => {
+      setAiLock(snap.val() ?? null);
+    });
+    return () => unsub();
+  }, [boardId]);
 
   const getBoardCenter = useCallback(() => {
     const stage = stageRef?.current;
@@ -41,7 +58,6 @@ export default function AIAssistant() {
         y: stage.height() / 2,
       });
     }
-    // Use viewport center kept in sync by Canvas (pan/zoom) so AI-created objects appear in view
     if (viewportCenterRef?.current) return viewportCenterRef.current;
     return { x: 0, y: 0 };
   }, [stageRef, viewportCenterRef]);
@@ -55,19 +71,59 @@ export default function AIAssistant() {
     return Math.min(scaleFactor, 200);
   }, [stageRef]);
 
+  /**
+   * Returns a CENTER point such that new content (reqW × reqH) will start
+   * gap=60 px below the bounding box of all existing objects.
+   * Falls back to viewport center when the board is empty.
+   */
+  const findEmptyPlacement = useCallback((reqW, reqH) => {
+    const boardState = getBoardState();
+    if (!boardState || boardState.length === 0) {
+      return getBoardCenter();
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const obj of boardState) {
+      const ox = obj.x ?? 0;
+      const oy = obj.y ?? 0;
+      const ow = obj.width ?? 100;
+      const oh = obj.height ?? 100;
+      minX = Math.min(minX, ox);
+      minY = Math.min(minY, oy);
+      maxX = Math.max(maxX, ox + ow);
+      maxY = Math.max(maxY, oy + oh);
+    }
+    const gap = 60;
+    return {
+      x: (minX + maxX) / 2,
+      y: maxY + gap + (reqH / 2),
+    };
+  }, [getBoardState, getBoardCenter]);
+
   const executeActions = useCallback((actions) => {
     if (!Array.isArray(actions) || actions.length === 0) return;
+
+    aiPlacementOffsetIndexRef.current = 0;
+
+    // firstCenter: used only for setRequestCenterView at the end (pan the viewport)
     const firstCenter = getBoardCenter();
-    const hasCreates = actions.some((a) => ['add_shape', 'add_sticky_note', 'add_frame', 'createShape', 'createStickyNote', 'createFrame', 'createStickyNoteGrid', 'createSwotTemplate', 'createUserJourney', 'createRetrospectiveBoard'].includes(a.type));
+    // layoutCenter: where new content should land (below existing objects)
+    // used for spaceEvenly, arrangeInGrid reference
+    const layoutCenter = findEmptyPlacement(160, 120);
+
+    const hasCreates = actions.some((a) => [
+      'add_shape', 'add_sticky_note', 'add_frame',
+      'createShape', 'createStickyNote', 'createFrame',
+      'createStickyNoteGrid', 'createSwotTemplate',
+      'createUserJourney', 'createRetrospectiveBoard', 'createFrameWithNotes',
+    ].includes(a.type));
     if (hasCreates && actions.length > 1 && setDeferPan) setDeferPan(true);
 
-    // Two-pass: run all non-layout actions first (so createdIdsThisBatch is populated), then layout (arrangeInGrid, spaceEvenly)
+    // Two-pass: run all non-layout actions first, then layout (arrangeInGrid, spaceEvenly)
     const layoutTypes = ['arrangeInGrid', 'spaceEvenly'];
     const pass1Actions = actions.filter((a) => !layoutTypes.includes(a.type));
     const pass2Actions = actions.filter((a) => layoutTypes.includes(a.type));
     const actionsToRun = pass2Actions.length > 0 ? [...pass1Actions, ...pass2Actions] : actions;
 
-    // Collect ids of objects created in this batch so arrangeInGrid/spaceEvenly can use them when objectIds is []
     const createdIdsThisBatch = [];
     let didArrangeInGrid = false;
 
@@ -78,65 +134,141 @@ export default function AIAssistant() {
       oval: { base: 120, w: 120, h: 80, color: '#8B5CF6' },
     };
 
+    // ── Pre-compute batch counts for horizontal row layout ────────────────────
+    // Items with explicit x/y use those coords; only auto-placed items get row layout.
+    const batchGap = 24;
+
+    const autoShapeCount = actionsToRun.filter(
+      (a) => (a.type === 'createShape' || a.type === 'add_shape') && a.x == null
+    ).length;
+    const autoStickyCount = actionsToRun.filter(
+      (a) => (a.type === 'createStickyNote' || a.type === 'add_sticky_note') && a.x == null
+    ).length;
+    const autoFrameCount = actionsToRun.filter(
+      (a) => (a.type === 'createFrame' || a.type === 'add_frame') && a.x == null
+    ).length;
+
+    // Compute placement anchors once (board state is stable during this function)
+    const shapeBatchPlacement = autoShapeCount > 0
+      ? findEmptyPlacement(autoShapeCount * (100 + batchGap) - batchGap, 100)
+      : layoutCenter;
+    const stickyBatchPlacement = autoStickyCount > 0
+      ? findEmptyPlacement(autoStickyCount * (160 + batchGap) - batchGap, 120)
+      : layoutCenter;
+    const frameBatchPlacement = autoFrameCount > 0
+      ? findEmptyPlacement(autoFrameCount * (600 + batchGap) - batchGap, 400)
+      : layoutCenter;
+
+    let autoShapeIdx = 0;
+    let autoStickyIdx = 0;
+    let autoFrameIdx = 0;
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    const runCreateShape = (shape, color, x, y, width, height, useRandomColor) => {
+      const d = shapeDefaults[shape] || shapeDefaults.circle;
+      const scaleFactor = getScaledSize(d.base);
+      const w = width ?? (d.w || d.base) * scaleFactor;
+      const h = height ?? (d.h || d.base) * scaleFactor;
+      let fx, fy;
+      if (x != null) {
+        fx = x;
+        fy = y;
+      } else {
+        const N = autoShapeCount;
+        const i = autoShapeIdx++;
+        const totalW = N * (w + batchGap) - batchGap;
+        fx = shapeBatchPlacement.x - totalW / 2 + i * (w + batchGap);
+        fy = shapeBatchPlacement.y - h / 2;
+      }
+      const resolvedColor = useRandomColor
+        ? SHAPE_RANDOM_COLORS[Math.floor(Math.random() * SHAPE_RANDOM_COLORS.length)]
+        : (color || d.color);
+      const id = createShape(shape, fx, fy, w, h, resolvedColor);
+      if (id) createdIdsThisBatch.push(id);
+      return id;
+    };
+
+    const runCreateStickyNote = (text, color, x, y, width, height) => {
+      const baseW = 160;
+      const baseH = 120;
+      const scaleFactor = getScaledSize(baseW);
+      const w = width ?? baseW * scaleFactor;
+      const h = height ?? baseH * scaleFactor;
+      let fx, fy;
+      if (x != null) {
+        fx = x;
+        fy = y;
+      } else {
+        const N = autoStickyCount;
+        const i = autoStickyIdx++;
+        const totalW = N * (w + batchGap) - batchGap;
+        fx = stickyBatchPlacement.x - totalW / 2 + i * (w + batchGap);
+        fy = stickyBatchPlacement.y - h / 2;
+      }
+      const c = color || STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
+      const id = createStickyNote(text ?? 'New note', fx, fy, c, w, h);
+      if (id) createdIdsThisBatch.push(id);
+      showToast('Sticky note added', 'success');
+      return id;
+    };
+
+    const runCreateFrame = (title, x, y, width, height) => {
+      const fw = width ?? 600;
+      const fh = height ?? 400;
+      let fx, fy;
+      if (x != null) {
+        fx = x;
+        fy = y;
+      } else {
+        const N = autoFrameCount;
+        const i = autoFrameIdx++;
+        const totalW = N * (fw + batchGap) - batchGap;
+        fx = frameBatchPlacement.x - totalW / 2 + i * (fw + batchGap);
+        fy = frameBatchPlacement.y - fh / 2;
+      }
+      const id = createFrame(fx, fy, fw, fh, title ?? 'Frame');
+      if (id) createdIdsThisBatch.push(id);
+      showToast('Frame added', 'success');
+      return id;
+    };
+
+    // ── Main action loop ──────────────────────────────────────────────────────
     for (const action of actionsToRun) {
       try {
-        const offset = 45 * aiPlacementOffsetIndexRef.current;
-        const px = firstCenter.x + offset;
-        const py = firstCenter.y + offset;
-        const useCenter = (action.x == null && action.y == null);
-
-        const runCreateShape = (shape, color, x, y, width, height, useRandomColor) => {
-          const d = shapeDefaults[shape] || shapeDefaults.circle;
-          const scaleFactor = getScaledSize(d.base);
-          const w = width ?? (d.w || d.base) * scaleFactor;
-          const h = height ?? (d.h || d.base) * scaleFactor;
-          const fx = x ?? px - w / 2;
-          const fy = y ?? py - h / 2;
-          const resolvedColor = useRandomColor
-            ? SHAPE_RANDOM_COLORS[Math.floor(Math.random() * SHAPE_RANDOM_COLORS.length)]
-            : (color || d.color);
-          const id = createShape(shape, fx, fy, w, h, resolvedColor);
-          if (id) createdIdsThisBatch.push(id);
-          return id;
-        };
-
-        const runCreateStickyNote = (text, color, x, y, width, height) => {
-          const baseW = 160;
-          const baseH = 120;
-          const scaleFactor = getScaledSize(baseW);
-          const w = width ?? baseW * scaleFactor;
-          const h = height ?? baseH * scaleFactor;
-          const fx = x ?? px - w / 2;
-          const fy = y ?? py - h / 2;
-          const c = color || STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
-          const id = createStickyNote(text ?? 'New note', fx, fy, c, w, h);
-          if (id) createdIdsThisBatch.push(id);
-          showToast('Sticky note added', 'success');
-          return id;
-        };
-
-        const runCreateFrame = (title, x, y, width, height) => {
-          const fw = width ?? 600;
-          const fh = height ?? 400;
-          const fx = x ?? px - fw / 2;
-          const fy = y ?? py - fh / 2;
-          const id = createFrame(fx, fy, fw, fh, title ?? 'Frame');
-          if (id) createdIdsThisBatch.push(id);
-          showToast('Frame added', 'success');
-          return id;
-        };
-
         if (action.type === 'add_shape' || action.type === 'createShape') {
-          if (useCenter) aiPlacementOffsetIndexRef.current += 1;
           const id = runCreateShape(action.shape || 'circle', action.color, action.x, action.y, action.width, action.height, !!action.randomColor);
           const shapeCount = actionsToRun.filter((a) => a.type === 'add_shape' || a.type === 'createShape').length;
           if (shapeCount === 1 && id) showToast('Shape added', 'success');
         } else if (action.type === 'add_sticky_note' || action.type === 'createStickyNote') {
-          if (useCenter) aiPlacementOffsetIndexRef.current += 1;
           runCreateStickyNote(action.text, action.color, action.x, action.y, action.width, action.height);
         } else if (action.type === 'add_frame' || action.type === 'createFrame') {
-          if (useCenter) aiPlacementOffsetIndexRef.current += 1;
           runCreateFrame(action.title, action.x, action.y, action.width, action.height);
+        } else if (action.type === 'createFrameWithNotes') {
+          const fw = action.width ?? 600;
+          const fh = action.height ?? 400;
+          const placement = findEmptyPlacement(fw, fh);
+          const fx = placement.x - fw / 2;
+          const fy = placement.y - fh / 2;
+          const frameId = createFrame(fx, fy, fw, fh, action.title ?? 'Frame');
+          if (frameId) createdIdsThisBatch.push(frameId);
+          const notes = action.notes ?? [];
+          const titleH = 40;
+          const pad = 16;
+          const sw = fw - 2 * pad;
+          const sh = 72;
+          const noteGap = 12;
+          notes.forEach((text, idx) => {
+            const nx = fx + pad;
+            const ny = fy + titleH + pad + idx * (sh + noteGap);
+            const stickyId = createStickyNote(String(text), nx, ny, STICKY_COLORS[idx % STICKY_COLORS.length], sw, sh);
+            if (stickyId) {
+              createdIdsThisBatch.push(stickyId);
+              requestAnimationFrame(() => setTimeout(() => {
+                updateObject(stickyId, { parentFrameId: frameId });
+              }, 0));
+            }
+          });
+          showToast('Frame with notes created', 'success');
         } else if (action.type === 'createConnector') {
           if (action.fromId && action.toId) {
             createConnector(action.fromId, action.toId, action.style || 'straight');
@@ -166,13 +298,29 @@ export default function AIAssistant() {
             updateObject(action.objectId, { color: action.color });
             showToast('Color updated', 'success');
           }
+        } else if (action.type === 'deleteObject') {
+          if (action.objectId && deleteObject) {
+            if (objects[action.objectId]) {
+              deleteObject(action.objectId);
+              showToast('Deleted', 'success');
+            } else {
+              console.warn('[AI] deleteObject: id not found in objects:', action.objectId);
+              showToast('Object not found — board state may be stale', 'warning');
+            }
+          }
+        } else if (action.type === 'clearBoard') {
+          if (clearBoard) {
+            clearBoard();
+          } else {
+            Object.keys(objects).forEach((id) => deleteObject && deleteObject(id));
+          }
+          showToast('Board cleared', 'success');
         } else if (action.type === 'arrangeInGrid') {
-          // Defer so React has committed create state; then moveObject will see full object and not overwrite it
           const layoutAction = action;
           const ids = layoutAction.objectIds?.length ? layoutAction.objectIds : [...createdIdsThisBatch];
           if (!ids.length || !layoutAction.rows || !layoutAction.cols || !moveObject) continue;
           didArrangeInGrid = true;
-          const fc = { ...firstCenter };
+          const fc = { ...layoutCenter };
           const sp = layoutAction.spacing ?? 20;
           const runGrid = () => {
             const objs = ids.map((id) => ({ id, width: 160, height: 120 }));
@@ -196,8 +344,11 @@ export default function AIAssistant() {
           const scaleFactor = getScaledSize(baseW);
           const w = baseW * scaleFactor;
           const h = baseH * scaleFactor;
-          const startX = firstCenter.x - (cols * (w + spacing) - spacing) / 2;
-          const startY = firstCenter.y - (rows * (h + spacing) - spacing) / 2;
+          const totalW = cols * (w + spacing) - spacing;
+          const totalH = rows * (h + spacing) - spacing;
+          const gridPlacement = findEmptyPlacement(totalW, totalH);
+          const startX = gridPlacement.x - totalW / 2;
+          const startY = gridPlacement.y - totalH / 2;
           for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
               const idx = r * cols + c;
@@ -206,7 +357,6 @@ export default function AIAssistant() {
               if (id) createdIdsThisBatch.push(id);
             }
           }
-          aiPlacementOffsetIndexRef.current += rows * cols;
           showToast('Sticky note grid created', 'success');
         } else if (action.type === 'spaceEvenly') {
           let { objectIds: ids, direction = 'horizontal' } = action;
@@ -219,8 +369,8 @@ export default function AIAssistant() {
           const totalW = objs.length * defaultW + (objs.length - 1) * gap;
           const totalH = objs.length * defaultH + (objs.length - 1) * gap;
           const span = direction === 'horizontal' ? totalW : totalH;
-          const start = direction === 'horizontal' ? firstCenter.x - span / 2 : firstCenter.y - span / 2;
-          const fc = { ...firstCenter };
+          const start = direction === 'horizontal' ? layoutCenter.x - span / 2 : layoutCenter.y - span / 2;
+          const fc = { ...layoutCenter };
           const runSpace = () => {
             objs.forEach((obj, i) => {
               if (direction === 'horizontal') {
@@ -235,14 +385,12 @@ export default function AIAssistant() {
           };
           requestAnimationFrame(() => setTimeout(runSpace, 0));
         } else if (action.type === 'createSwotTemplate') {
-          // Layout constants
-          // Before: sp=30, fw=400, fh=280 — stickies were 120×80 in a 2-col mini-grid starting at y+12 (overlapping the 40px title bar)
-          // After:  sp=24, fw=440, fh=400 — stickies are full-width single column, starting below the 40px title bar
           const sp = 24;
           const fw = 440;
           const fh = 400;
-          const startX = firstCenter.x - (2 * fw + sp) / 2;
-          const startY = firstCenter.y - (2 * fh + sp) / 2;
+          const swotPlacement = findEmptyPlacement(2 * fw + sp, 2 * fh + sp);
+          const startX = swotPlacement.x - (2 * fw + sp) / 2;
+          const startY = swotPlacement.y - (2 * fh + sp) / 2;
           const titles = ['Strengths', 'Weaknesses', 'Opportunities', 'Threats'];
           const frameIds = [];
           titles.forEach((title, i) => {
@@ -254,7 +402,6 @@ export default function AIAssistant() {
               frameIds.push(id);
             }
           });
-          // Frontend fallback: if stickies are missing or all empty, use placeholder content so the board is never blank.
           let stickiesPayload = action.stickies && typeof action.stickies === 'object' ? action.stickies : null;
           if (!stickiesPayload || ['strengths', 'weaknesses', 'opportunities', 'threats'].every(
             (k) => !Array.isArray(stickiesPayload[k]) || stickiesPayload[k].length === 0
@@ -267,11 +414,11 @@ export default function AIAssistant() {
             };
           }
           const quadKeys = ['strengths', 'weaknesses', 'opportunities', 'threats'];
-          const titleH = 40; // matches the title bar height rendered in Frame.jsx
-          const pad = 16;    // padding on left/right/bottom of sticky area
-          const sw = fw - 2 * pad; // full-width stickies (408px at fw=440)
-          const sh = 72;     // sticky height — tall enough for 2–3 lines
-          const gap = 12;    // vertical gap between stickies
+          const titleH = 40;
+          const pad = 16;
+          const sw = fw - 2 * pad;
+          const sh = 72;
+          const gap = 12;
           if (updateObject) {
             const updates = [];
             quadKeys.forEach((key, quadIndex) => {
@@ -281,7 +428,6 @@ export default function AIAssistant() {
               const frameX = startX + (quadIndex % 2) * (fw + sp);
               const frameY = startY + Math.floor(quadIndex / 2) * (fh + sp);
               items.forEach((text, idx) => {
-                // Single-column layout, starting below the title bar
                 const x = frameX + pad;
                 const y = frameY + titleH + pad + idx * (sh + gap);
                 const stickyId = createStickyNote(String(text || '').slice(0, 200), x, y, STICKY_COLORS[idx % STICKY_COLORS.length], sw, sh);
@@ -297,7 +443,6 @@ export default function AIAssistant() {
               }, 0));
             }
           }
-          aiPlacementOffsetIndexRef.current += 4;
           showToast('SWOT analysis created', 'success');
         } else if (action.type === 'createUserJourney') {
           const n = Math.min(Number(action.stageCount) || 5, 15);
@@ -308,26 +453,28 @@ export default function AIAssistant() {
           const w = baseW * scaleFactor;
           const h = baseH * scaleFactor;
           const gap = 24;
-          const startX = firstCenter.x - (n * (w + gap) - gap) / 2;
-          const startY = firstCenter.y - h / 2;
+          const totalW = n * (w + gap) - gap;
+          const journeyPlacement = findEmptyPlacement(totalW, h);
+          const startX = journeyPlacement.x - totalW / 2;
+          const startY = journeyPlacement.y - h / 2;
           for (let i = 0; i < n; i++) {
             const id = createStickyNote(names[i], startX + i * (w + gap), startY, STICKY_COLORS[i % STICKY_COLORS.length], w, h);
             if (id) createdIdsThisBatch.push(id);
           }
-          aiPlacementOffsetIndexRef.current += n;
           showToast('User journey created', 'success');
         } else if (action.type === 'createRetrospectiveBoard') {
           const cols = ['What Went Well', "What Didn't", 'Action Items'];
           const cw = 320;
           const ch = 360;
           const gap = 24;
-          const startX = firstCenter.x - (3 * cw + 2 * gap) / 2;
-          const startY = firstCenter.y - ch / 2;
+          const totalW = 3 * cw + 2 * gap;
+          const retroPlacement = findEmptyPlacement(totalW, ch);
+          const startX = retroPlacement.x - totalW / 2;
+          const startY = retroPlacement.y - ch / 2;
           cols.forEach((title, i) => {
             const id = createFrame(startX + i * (cw + gap), startY, cw, ch, title);
             if (id) createdIdsThisBatch.push(id);
           });
-          aiPlacementOffsetIndexRef.current += 3;
           showToast('Retrospective board created', 'success');
         }
       } catch (err) {
@@ -342,18 +489,10 @@ export default function AIAssistant() {
     if (createdIdsThisBatch.length > 1 && !didArrangeInGrid) {
       showToast(`Added ${createdIdsThisBatch.length} shapes`, 'success');
     }
-  }, [getBoardCenter, getScaledSize, objects, createShape, createStickyNote, createFrame, createConnector, moveObject, updateObject, resizeObject, setDeferPan, setRequestCenterView]);
+  }, [getBoardCenter, findEmptyPlacement, getScaledSize, objects, createShape, createStickyNote, createFrame, createConnector, moveObject, updateObject, resizeObject, deleteObject, clearBoard, setDeferPan, setRequestCenterView]);
 
-  // Function URL resolution:
-  //   Deployed  → https://us-central1-<VITE_FIREBASE_PROJECT_ID>.cloudfunctions.net/aiChat
-  //   Emulator  → http://localhost:<VITE_EMULATOR_PORT>/<VITE_EMULATOR_PROJECT_ID>/us-central1/aiChat
-  //
-  // To use the local emulator add these to .env.local:
-  //   VITE_USE_EMULATOR=true
-  //   VITE_EMULATOR_PROJECT_ID=<your .firebaserc default project, e.g. collabboard-lakshmi>
-  //   VITE_EMULATOR_PORT=5002   (optional, defaults to 5002)
+  // Function URL resolution
   const firebaseProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || 'collabboard-d900c';
-  // Emulator project may differ from the Realtime-DB project — read from its own var, fall back to firebaseProjectId.
   const emulatorProjectId = import.meta.env.VITE_EMULATOR_PROJECT_ID || firebaseProjectId;
   const emulatorPort = import.meta.env.VITE_EMULATOR_PORT || '5002';
   const useEmulator = import.meta.env.VITE_USE_EMULATOR === 'true';
@@ -379,11 +518,18 @@ export default function AIAssistant() {
     setInput('');
     setIsLoading(true);
 
+    // Await the aiLock write so other clients see it BEFORE the fetch starts
+    if (boardId && user) {
+      try {
+        await set(ref(database, `boards/${boardId}/aiLock`), {
+          userId: user.id,
+          userName: user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Someone',
+          timestamp: Date.now(),
+        });
+      } catch (_) {}
+    }
+
     try {
-      // Get Clerk session token for authentication.
-      // Defensively handle cases where getToken is not yet available (Clerk still loading)
-      // or returns null (no active session). The emulator doesn't verify the JWT — it only
-      // checks that a Bearer header is present, so a fallback value keeps it working locally.
       let token = null;
       if (typeof getToken === 'function') {
         try {
@@ -391,18 +537,12 @@ export default function AIAssistant() {
         } catch (tokenErr) {
           console.warn('[AI] getToken() threw — proceeding without Clerk token:', tokenErr?.message);
         }
-      } else {
-        console.warn('[AI] getToken is not a function (Clerk may not be initialized). Proceeding without token.');
       }
 
-      // Call our Firebase Function instead of OpenAI directly
       const response = await fetch(functionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Only include the Authorization header when we have a real token.
-          // For the emulator this falls back to 'emulator-session' so the
-          // backend's Bearer-presence check still passes.
           'Authorization': `Bearer ${token || 'emulator-session'}`,
         },
         body: JSON.stringify({
@@ -419,10 +559,7 @@ export default function AIAssistant() {
 
       const data = await response.json();
       const content = data.message?.content ?? "I've added that to your board.";
-      const assistantMessage = {
-        role: 'assistant',
-        content,
-      };
+      const assistantMessage = { role: 'assistant', content };
 
       setMessages(prev => [...prev, assistantMessage]);
 
@@ -432,21 +569,22 @@ export default function AIAssistant() {
     } catch (error) {
       console.error('AI Assistant error:', error);
       const isConnectionError = error?.message === 'Failed to fetch' || (error?.name === 'TypeError' && String(error?.message || '').toLowerCase().includes('fetch'));
-      const userMessage = isConnectionError
+      const userMsg = isConnectionError
         ? 'AI Assistant is unavailable. Make sure the backend is running (e.g. Firebase Functions emulator).'
         : 'Sorry, I encountered an error. Please try again.';
-      showToast(isConnectionError ? `❌ ${userMessage}` : '❌ Failed to get response. Please try again.', 'error');
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: userMessage,
-        },
-      ]);
+      showToast(isConnectionError ? `❌ ${userMsg}` : '❌ Failed to get response. Please try again.', 'error');
+      setMessages(prev => [...prev, { role: 'assistant', content: userMsg }]);
     } finally {
       setIsLoading(false);
+      // Release aiLock
+      if (boardId) {
+        remove(ref(database, `boards/${boardId}/aiLock`)).catch(() => {});
+      }
     }
   };
+
+  // Determine if another user holds the AI lock
+  const otherUserLock = aiLock && aiLock.userId !== user?.id ? aiLock : null;
 
   if (!isOpen) {
     return (
@@ -471,12 +609,8 @@ export default function AIAssistant() {
           zIndex: 999,
           transition: 'transform 0.2s',
         }}
-        onMouseOver={(e) => {
-          e.currentTarget.style.transform = 'scale(1.1)';
-        }}
-        onMouseOut={(e) => {
-          e.currentTarget.style.transform = 'scale(1)';
-        }}
+        onMouseOver={(e) => { e.currentTarget.style.transform = 'scale(1.1)'; }}
+        onMouseOut={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
       >
         🤖
       </button>
@@ -528,19 +662,21 @@ export default function AIAssistant() {
         </button>
       </div>
 
-      {/* Chat Panel */}
-      {(
-        <div style={{
-          padding: 16,
-          background: '#0f172a',
-          borderBottom: '1px solid #334155',
-          color: '#94a3b8',
-          fontSize: '0.75rem',
-          textAlign: 'center',
-        }}>
-          ✨ AI Assistant Ready
-        </div>
-      )}
+      {/* Chat status panel */}
+      <div style={{
+        padding: '6px 16px',
+        background: otherUserLock ? 'rgba(245, 158, 11, 0.15)' : '#0f172a',
+        borderBottom: '1px solid #334155',
+        color: otherUserLock ? '#FCD34D' : '#94a3b8',
+        fontSize: '0.75rem',
+        fontWeight: otherUserLock ? 600 : 400,
+        textAlign: 'center',
+        minHeight: 28,
+      }}>
+        {otherUserLock
+          ? `⏳ ${otherUserLock.userName} is using AI...`
+          : '✨ AI Assistant Ready'}
+      </div>
 
       {/* Messages */}
       <div style={{
@@ -552,11 +688,7 @@ export default function AIAssistant() {
         gap: 12,
       }}>
         {messages.length === 0 && (
-          <div style={{
-            textAlign: 'center',
-            color: '#64748b',
-            padding: '40px 20px',
-          }}>
+          <div style={{ textAlign: 'center', color: '#64748b', padding: '40px 20px' }}>
             <p style={{ fontSize: '1.25rem', marginBottom: 8 }}>👋</p>
             <p style={{ fontSize: '0.875rem', margin: 0 }}>
               Hi! I'm your AI assistant. Ask me anything about brainstorming,

@@ -109,7 +109,7 @@ export default function Canvas() {
     
     setScale(targetScale);
     setStagePos(newPos);
-    showToast(`🔍 Zoom: ${Math.round(targetScale * 100)}%`, 'info');
+    // zoom level is shown in the control bar slider — no toast needed
   }, [dimensions.width, dimensions.height]);
 
   // Fit all objects in view

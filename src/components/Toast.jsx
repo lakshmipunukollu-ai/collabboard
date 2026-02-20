@@ -3,11 +3,41 @@ import { useEffect, useState } from 'react';
 let toastQueue = [];
 let toastListener = null;
 
+// Persistent notification history (max 50, never auto-expires)
+let notificationHistory = [];
+let historyListeners = [];
+
 let toastIdCounter = 0;
+
 export function showToast(message, type = 'info') {
   const now = Date.now();
-  toastQueue.push({ message, type, id: `toast-${now}-${++toastIdCounter}`, createdAt: now });
-  if (toastListener) toastListener();
+  const entry = { message, type, id: `toast-${now}-${++toastIdCounter}`, createdAt: now };
+
+  // Add to persistent history
+  notificationHistory = [entry, ...notificationHistory].slice(0, 50);
+  historyListeners.forEach((fn) => fn([...notificationHistory]));
+
+  // Only show floating popup for error and warning
+  if (type === 'error' || type === 'warning') {
+    toastQueue.push(entry);
+    if (toastListener) toastListener();
+  }
+}
+
+export function getNotificationHistory() {
+  return [...notificationHistory];
+}
+
+export function clearNotificationHistory() {
+  notificationHistory = [];
+  historyListeners.forEach((fn) => fn([]));
+}
+
+export function subscribeToHistory(fn) {
+  historyListeners.push(fn);
+  return () => {
+    historyListeners = historyListeners.filter((l) => l !== fn);
+  };
 }
 
 export default function Toast() {
@@ -51,8 +81,8 @@ export default function Toast() {
         <div
           key={toast.id}
           style={{
-            background: toast.type === 'success' ? '#10B981' : 
-                       toast.type === 'error' ? '#EF4444' : 
+            background: toast.type === 'success' ? '#10B981' :
+                       toast.type === 'error' ? '#EF4444' :
                        toast.type === 'warning' ? '#F59E0B' : '#3B82F6',
             color: 'white',
             padding: '12px 16px',

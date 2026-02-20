@@ -18,6 +18,7 @@ import EnhancedPresence from './components/EnhancedPresence';
 import PropertiesPanel from './components/PropertiesPanel';
 import AlignmentTools from './components/AlignmentTools';
 import AIAssistant from './components/AIAssistant';
+import NotificationBell from './components/NotificationBell';
 import './App.css';
 
 function BoardLayout({ boardId, onBackToList }) {
@@ -192,6 +193,7 @@ function BoardLayout({ boardId, onBackToList }) {
         <div className="header-actions">
           <AutoSaveIndicator />
           <EnhancedPresence />
+          <NotificationBell />
           <button
             onClick={() => setIsShareModalOpen(true)}
             title="Share board"
