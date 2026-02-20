@@ -7,9 +7,7 @@ import Connector from './Connector';
 import Frame from './Frame';
 import CursorOverlay from './CursorOverlay';
 import StickyNoteEditOverlay from './StickyNoteEditOverlay';
-import ModeIndicator from './ModeIndicator';
-import ZoomDisplay from './ZoomDisplay';
-import ZoomControls from './ZoomControls';
+import BoardControlBar from './BoardControlBar';
 import ContextMenu from './ContextMenu';
 import ErrorBoundary from './ErrorBoundary';
 import { showToast } from './Toast';
@@ -20,6 +18,7 @@ const MAX_SCALE = 4;
 export default function Canvas() {
   const {
     stageRef,
+    viewportCenterRef,
     objects,
     cursors,
     updateCursor,
@@ -35,6 +34,8 @@ export default function Canvas() {
     copySelectedObjects,
     pasteObjects,
     editingNoteId,
+    requestCenterView,
+    setRequestCenterView,
   } = useBoard();
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -65,6 +66,27 @@ export default function Canvas() {
     setOnline();
     return () => window.removeEventListener('resize', handleResize);
   }, [handleResize, setOnline]);
+
+  // Keep viewport center in world coords updated so AI can place objects visibly (e.g. when stage ref is briefly unavailable).
+  useEffect(() => {
+    if (!viewportCenterRef) return;
+    const cx = (dimensions.width / 2 - stagePos.x) / scale;
+    const cy = (dimensions.height / 2 - stagePos.y) / scale;
+    viewportCenterRef.current = { x: cx, y: cy };
+  }, [viewportCenterRef, dimensions.width, dimensions.height, stagePos.x, stagePos.y, scale]);
+
+  // Pan so a world point is at viewport center (e.g. after creating an object)
+  useEffect(() => {
+    if (!requestCenterView || !setRequestCenterView) return;
+    const { x: wx, y: wy } = requestCenterView;
+    const centerX = dimensions.width / 2;
+    const centerY = dimensions.height / 2;
+    setStagePos({
+      x: centerX - wx * scale,
+      y: centerY - wy * scale,
+    });
+    setRequestCenterView(null);
+  }, [requestCenterView, setRequestCenterView, dimensions.width, dimensions.height, scale]);
 
   // Zoom to specific scale, centered on viewport
   const zoomToScale = useCallback((targetScale) => {
@@ -137,7 +159,18 @@ export default function Canvas() {
     const handleKeyDown = (e) => {
       // Don't handle shortcuts if user is editing text
       if (editingNoteId) return;
-      
+
+      // Don't handle shortcuts when focus is in an input/textarea (e.g. AI Assistant):
+      // allows paste (Cmd+V), Backspace, etc. in the AI input and prevents deleting
+      // the newly created object when the user is still focused in the chat.
+      const active = document.activeElement;
+      const isInputFocused = active && (
+        active.tagName === 'INPUT' ||
+        active.tagName === 'TEXTAREA' ||
+        (typeof active.isContentEditable === 'boolean' && active.isContentEditable)
+      );
+      if (isInputFocused) return;
+
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
       
@@ -503,18 +536,15 @@ export default function Canvas() {
           )}
         </Layer>
       </Stage>
-      <ZoomControls 
-        scale={scale} 
-        onZoomChange={zoomToScale} 
-        onFitAll={fitAllObjects}
-      />
-      <ModeIndicator 
-        isDragging={isDragging} 
+      <BoardControlBar
         scale={scale}
+        onZoomChange={zoomToScale}
+        onFitAll={fitAllObjects}
+        isDragging={isDragging}
         totalObjects={totalCount}
         visibleObjects={visibleCount}
+        stageRef={stageRef}
       />
-      <ZoomDisplay scale={scale} />
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}

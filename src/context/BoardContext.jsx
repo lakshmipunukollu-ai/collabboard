@@ -30,8 +30,9 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+let _idCounter = 0;
 function generateId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `${Date.now()}-${(++_idCounter).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function BoardProvider({ children, boardId = 'default' }) {
@@ -111,6 +112,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
   }, [boardId]);
   
   const stageRef = useRef(null);
+  /** World coords of viewport center; Canvas updates this on pan/zoom so AI can place objects visibly when stage ref is unavailable. */
+  const viewportCenterRef = useRef(null);
   const [editingNoteId, setEditingNoteId] = useState(null);
   // Firebase state: what the server has
   const [firebaseObjects, setFirebaseObjects] = useState({});
@@ -123,6 +126,12 @@ export function BoardProvider({ children, boardId = 'default' }) {
   // Track which objects are being edited by which user
   const [activeEdits, setActiveEdits] = useState({}); // { objectId: { userId, timestamp } }
   const [history, setHistory] = useState([]); // Change history
+  const [requestCenterView, setRequestCenterView] = useState(null); // { x, y } world coords to pan into view after create
+  const deferPanRef = useRef(false); // when true, create* skip pan (so batch create can pan once to first)
+
+  const setDeferPan = useCallback((defer) => {
+    deferPanRef.current = !!defer;
+  }, []);
 
   // Merge Firebase state with optimistic updates
   // Firebase always wins when it has an object; optimistic only for pending creates
@@ -133,6 +142,19 @@ export function BoardProvider({ children, boardId = 'default' }) {
   // Keep a ref to merged objects for use in callbacks without triggering re-renders
   const objectsRef = useRef(objects);
   objectsRef.current = objects;
+
+  /** Serialized board state (id, type, x, y, width, height, color, text) for view/export and for AI (boardState in API). */
+  const getBoardState = useCallback(() => {
+    return Object.entries(objects).map(([id, obj]) => {
+      const base = { id, type: obj.type || 'unknown', x: obj.x ?? 0, y: obj.y ?? 0 };
+      if (obj.width != null) base.width = obj.width;
+      if (obj.height != null) base.height = obj.height;
+      if (obj.color != null) base.color = obj.color;
+      if (obj.text != null) base.text = obj.text;
+      if (obj.title != null) base.text = obj.title;
+      return base;
+    });
+  }, [objects]);
 
   // Memoize Firebase refs so they're stable across renders
   const boardRef = useMemo(() => ref(database, `boards/${boardId}`), [boardId]);
@@ -178,7 +200,6 @@ export function BoardProvider({ children, boardId = 'default' }) {
             
             if (objCenterX >= frameX && objCenterX <= frameX + frameW &&
                 objCenterY >= frameY && objCenterY <= frameY + frameH) {
-              console.log(`🔧 Setting parentFrameId for object ${objId} -> frame ${frameId}`);
               updates[`${objId}/parentFrameId`] = frameId;
               break;
             }
@@ -187,7 +208,6 @@ export function BoardProvider({ children, boardId = 'default' }) {
       });
       
       if (Object.keys(updates).length > 0) {
-        console.log(`🔧 Fixing ${Object.keys(updates).length} objects with missing parentFrameId`);
         await update(ref(database, `boards/${boardId}/objects`), updates);
       }
     };
@@ -198,19 +218,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
   }, [boardId, user]);
 
   useEffect(() => {
-    console.log('🔥 Firebase: Setting up real-time listeners...');
-    
-    let lastLogTime = 0;
     const unsubObjects = onValue(firebaseObjectsRef, (snapshot) => {
       const val = snapshot.val() ?? {};
-      
-      // Only log occasionally to avoid console spam
-      const now = Date.now();
-      if (now - lastLogTime > 1000) {
-        console.log(`📥 Firebase objects sync (${Object.keys(val).length} objects)`);
-        lastLogTime = now;
-      }
-      
       // Firebase is source of truth
       setFirebaseObjects(val);
       // Only clear optimistic updates for objects that Firebase now has
@@ -236,13 +245,11 @@ export function BoardProvider({ children, boardId = 'default' }) {
     
     const unsubCursors = onValue(cursorsRef, (snapshot) => {
       const val = snapshot.val() || {};
-      console.log(`🖱️ Firebase cursors update (${Object.keys(val).length} cursors)`);
       setCursors(val);
     });
     
     const unsubPresence = onValue(presenceRef, (snapshot) => {
       const val = snapshot.val() || {};
-      console.log(`👥 Firebase presence update (${Object.keys(val).length} users online)`);
       setPresence(val);
     });
     
@@ -254,11 +261,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
         .slice(0, 500); // Keep last 500 entries
       setHistory(historyArray);
     });
-    
-    console.log('✅ Firebase: All listeners active');
-    
+
     return () => {
-      console.log('🔌 Firebase: Cleaning up listeners');
       unsubObjects();
       unsubCursors();
       unsubPresence();
@@ -331,13 +335,13 @@ export function BoardProvider({ children, boardId = 'default' }) {
       updatedAt: Date.now(),
     };
     
-    console.log(`📝 Creating sticky note ${id} at (${newObj.x}, ${newObj.y})`);
-    
     // Optimistic: add to local state immediately
     setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
     
     // Auto-select the newly created object
     setSelectedIds(new Set([id]));
+    
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + newObj.width / 2, y: newObj.y + newObj.height / 2 });
     
     // Log to history
     const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
@@ -350,7 +354,6 @@ export function BoardProvider({ children, boardId = 'default' }) {
       updatedAt: serverTimestamp(),
     })
       .then(() => {
-        console.log(`✅ Sticky note ${id} synced to Firebase`);
         setSaveStatus('saved');
       })
       .catch((err) => {
@@ -359,7 +362,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
       });
     
     return id;
-  }, [user]);
+  }, [user, userPermission, boardId, logHistory]);
 
   const createShape = useCallback((type, x, y, width, height, color = '#6366F1') => {
     if (!user) return null;
@@ -378,13 +381,13 @@ export function BoardProvider({ children, boardId = 'default' }) {
       updatedAt: Date.now(),
     };
     
-    console.log(`🔷 Creating ${type} ${id} at (${newObj.x}, ${newObj.y})`);
-    
     // Optimistic: add to local state immediately
     setOptimisticUpdates((prev) => ({ ...prev, [id]: newObj }));
     
     // Auto-select the newly created object
     setSelectedIds(new Set([id]));
+    
+    if (!deferPanRef.current) setRequestCenterView({ x: newObj.x + newObj.width / 2, y: newObj.y + newObj.height / 2 });
     
     // Log to history
     const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Anonymous';
@@ -394,10 +397,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
     set(ref(database, `boards/${boardId}/objects/${id}`), {
       ...newObj,
       updatedAt: serverTimestamp(),
-    }).then(() => {
-      console.log(`✅ ${type} ${id} synced to Firebase`);
-    });
-    
+    }).then(() => {});
+
     return id;
   }, [user, userPermission, boardId, logHistory]);
 
@@ -486,9 +487,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
     }
     
     const currentObj = objectsRef.current[objectId] || {};
-    
-    console.log(`✏️ Updating object ${objectId}:`, safePayload);
-    
+
     // OPTIMISTIC: Update local state immediately for instant UI response
     setOptimisticUpdates((prev) => ({
       ...prev,
@@ -508,7 +507,6 @@ export function BoardProvider({ children, boardId = 'default' }) {
       updatedAt: serverTimestamp(),
     })
       .then(() => {
-        console.log(`✅ Update synced to Firebase (${Date.now() - startTime}ms)`);
         setSaveStatus('saved');
       })
       .catch((err) => {
@@ -555,7 +553,6 @@ export function BoardProvider({ children, boardId = 'default' }) {
     if (obj && obj.type === 'frame') {
       Object.entries(objectsRef.current).forEach(([childId, childObj]) => {
         if (childObj.parentFrameId === objectId) {
-          console.log(`🔗 Clearing parentFrameId from orphaned child ${childId}`);
           const childRef = ref(database, `boards/${boardId}/objects/${childId}`);
           update(childRef, { parentFrameId: null });
         }
@@ -730,7 +727,6 @@ export function BoardProvider({ children, boardId = 'default' }) {
       ...newConnector,
       updatedAt: serverTimestamp(),
     }).then(() => {
-      console.log(`✅ Connector ${id} synced`);
       setOptimisticUpdates((prev) => {
         const { [id]: _, ...rest } = prev;
         return rest;
@@ -766,6 +762,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
     // Optimistic create
     setOptimisticUpdates((prev) => ({ ...prev, [id]: newFrame }));
     
+    if (!deferPanRef.current) setRequestCenterView({ x: newFrame.x + newFrame.width / 2, y: newFrame.y + newFrame.height / 2 });
+    
     // Log history
     logHistory('created', id, 'frame', user.id, displayName);
     
@@ -774,7 +772,6 @@ export function BoardProvider({ children, boardId = 'default' }) {
       ...newFrame,
       updatedAt: serverTimestamp(),
     }).then(() => {
-      console.log(`✅ Frame ${id} synced`);
       setOptimisticUpdates((prev) => {
         const { [id]: _, ...rest } = prev;
         return rest;
@@ -788,8 +785,56 @@ export function BoardProvider({ children, boardId = 'default' }) {
     return id;
   }, [user, userPermission, boardId, logHistory]);
 
+  // Dev-only: window.devAddObjects(n) to add n random objects scattered around viewport center
+  useEffect(() => {
+    const SHAPE_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
+    const STICKY_COLORS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FECACA', '#FDE68A'];
+    const SHAPE_TYPES = ['rectangle', 'circle', 'oval', 'line'];
+    const SPACING = 100;
+
+    window.devAddObjects = function devAddObjects(n) {
+      const count = Math.max(0, Math.min(Number(n) || 10, 500));
+      if (count === 0) {
+        console.warn('devAddObjects: count 0, no objects added.');
+        return;
+      }
+      const center = viewportCenterRef.current || { x: 0, y: 0 };
+      const spread = Math.sqrt(count) * SPACING;
+      let created = 0;
+      setDeferPan(true);
+      for (let i = 0; i < count; i++) {
+        const x = center.x + (Math.random() - 0.5) * 2 * spread;
+        const y = center.y + (Math.random() - 0.5) * 2 * spread;
+        const isSticky = Math.random() < 0.25;
+        if (isSticky) {
+          const w = 120 + Math.random() * 60;
+          const h = 90 + Math.random() * 50;
+          const color = STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
+          if (createStickyNote(`Note ${i + 1}`, x, y, color, w, h)) created++;
+        } else {
+          const type = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
+          const w = type === 'line' ? 80 + Math.random() * 80 : 60 + Math.random() * 60;
+          const h = type === 'line' ? 12 : 60 + Math.random() * 40;
+          const color = SHAPE_COLORS[Math.floor(Math.random() * SHAPE_COLORS.length)];
+          if (createShape(type, x, y, w, h, color)) created++;
+        }
+      }
+      setDeferPan(false);
+      if (created === 0) {
+        console.warn('devAddObjects: 0 objects created. Sign in and ensure you have edit/owner access on this board.');
+      } else {
+        console.log(`devAddObjects: created ${created} objects around (${Math.round(center.x)}, ${Math.round(center.y)}).`);
+      }
+    };
+
+    return () => {
+      delete window.devAddObjects;
+    };
+  }, [createShape, createStickyNote, setDeferPan]);
+
   const value = {
     objects,
+    getBoardState,
     cursors,
     presence,
     stageRef,
@@ -820,6 +865,10 @@ export function BoardProvider({ children, boardId = 'default' }) {
     stopEditing,
     history,
     userPermission,
+    requestCenterView,
+    setRequestCenterView,
+    setDeferPan,
+    viewportCenterRef,
   };
 
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;

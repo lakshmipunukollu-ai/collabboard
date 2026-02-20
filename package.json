@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "concurrently -n emulator,app \"firebase emulators:start --only functions\" \"npm run dev\"",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
@@ -20,6 +21,7 @@
     "react-konva": "^18.2.10"
   },
   "devDependencies": {
+    "concurrently": "^9.0.0",
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
     "@types/react": "^18.2.43",

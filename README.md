@@ -77,6 +77,7 @@ A real-time collaborative whiteboard application built with React, Firebase Real
    ```bash
    npm run dev
    ```
+   To use the **AI Assistant** locally: run `cd functions && npm install` once from the project root, then start with `npm run dev:all` instead of `npm run dev` so the Firebase Functions emulator runs. See [AI_ASSISTANT_SETUP.md](./AI_ASSISTANT_SETUP.md) for details.
 
 5. **Open in browser**:
    ```

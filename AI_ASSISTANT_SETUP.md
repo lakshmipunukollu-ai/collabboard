@@ -13,6 +13,28 @@
 
 When the app runs on `localhost`, it calls the **Firebase Functions emulator** at `http://localhost:5002/.../aiChat`. You must start the emulator before using the AI Assistant.
 
+### First time only
+
+From the project root, install the Functions backend dependencies once:
+
+```bash
+cd functions && npm install && cd ..
+```
+
+Then use the one-command or two-terminal option below.
+
+### One-command option (recommended)
+
+From the project root, run:
+
+```bash
+npm run dev:all
+```
+
+This starts both the Functions emulator and the frontend in one terminal (logs are prefixed with `[emulator]` and `[app]`). Stop both with **Ctrl+C**. Wait until you see **"All emulators ready!"** in the terminal before using the AI Assistant; if you see "unavailable", wait a few more seconds for the emulator to finish starting, then try again.
+
+### Two-terminal option
+
 **Start the Functions emulator (from project root):**
 
 ```bash

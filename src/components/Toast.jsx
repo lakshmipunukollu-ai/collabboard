@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 let toastQueue = [];
 let toastListener = null;
 
+let toastIdCounter = 0;
 export function showToast(message, type = 'info') {
-  toastQueue.push({ message, type, id: Date.now() });
+  const now = Date.now();
+  toastQueue.push({ message, type, id: `toast-${now}-${++toastIdCounter}`, createdAt: now });
   if (toastListener) toastListener();
 }
 
@@ -19,7 +21,7 @@ export default function Toast() {
     const interval = setInterval(() => {
       if (toastQueue.length > 0) {
         const now = Date.now();
-        toastQueue = toastQueue.filter((t) => now - t.id < 3000);
+        toastQueue = toastQueue.filter((t) => (t.createdAt != null ? now - t.createdAt < 3000 : true));
         setToasts([...toastQueue]);
       }
     }, 100);

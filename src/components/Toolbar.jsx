@@ -3,12 +3,14 @@ import { useBoard } from '../context/BoardContext';
 import { showToast } from './Toast';
 import ClearBoardButton from './ClearBoardButton';
 import HistoryPanel from './HistoryPanel';
+import BoardStateModal from './BoardStateModal';
 
 const STICKY_COLORS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FECACA', '#FDE68A'];
 
 export default function Toolbar() {
-  const { createStickyNote, createShape, createConnector, createFrame, stageRef, selectedIds, userPermission } = useBoard();
+  const { createStickyNote, createShape, createConnector, createFrame, getBoardState, stageRef, selectedIds, userPermission } = useBoard();
   const [connectorMode, setConnectorMode] = useState(false);
+  const [boardStateModalOpen, setBoardStateModalOpen] = useState(false);
   const [connectorStyle, setConnectorStyle] = useState('arrow'); // 'arrow', 'line', 'curved', 'elbowed'
   const [firstSelectedForConnector, setFirstSelectedForConnector] = useState(null);
   
@@ -302,8 +304,29 @@ export default function Toolbar() {
       }}>
         ACTIONS
       </div>
+      <button
+        type="button"
+        className="toolbar-btn"
+        onClick={() => setBoardStateModalOpen(true)}
+        title="View or export current board state (same data the AI uses)"
+        style={{
+          width: '100%',
+          justifyContent: 'flex-start',
+          padding: '10px 12px',
+        }}
+      >
+        📋 Board state
+      </button>
       <HistoryPanel />
       <ClearBoardButton />
+
+      {boardStateModalOpen && getBoardState && (
+        <BoardStateModal
+          getBoardState={getBoardState}
+          onClose={() => setBoardStateModalOpen(false)}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 }
