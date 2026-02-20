@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Group, Image as KImage, Rect, Transformer } from 'react-konva';
+import { Image as KImage, Rect, Transformer } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
 
 export default function BoardImage({ id, data }) {
@@ -13,7 +13,7 @@ export default function BoardImage({ id, data }) {
     dataUrl = '', rotation = 0,
   } = data;
 
-  const groupRef = useRef(null);
+  const imageRef = useRef(null);
   const transformerRef = useRef(null);
   const dragThrottleRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -28,13 +28,15 @@ export default function BoardImage({ id, data }) {
     image.onload = () => setImg(image);
   }, [dataUrl]);
 
+  // Attach transformer to the image node when selected
   useEffect(() => {
-    if (isSelected && transformerRef.current && groupRef.current) {
-      transformerRef.current.nodes([groupRef.current]);
+    if (isSelected && transformerRef.current && imageRef.current) {
+      transformerRef.current.nodes([imageRef.current]);
       transformerRef.current.getLayer()?.batchDraw();
     }
-  }, [isSelected, width, height]);
+  }, [isSelected]);
 
+  // Delete key handler
   useEffect(() => {
     const handleKey = (e) => {
       if (isSelected && (e.key === 'Delete' || e.key === 'Backspace')) {
@@ -62,44 +64,65 @@ export default function BoardImage({ id, data }) {
     setIsDragging(false);
     stopEditing(id);
   };
+
   const handleTransformEnd = () => {
-    const node = groupRef.current;
+    const node = imageRef.current;
     if (!node) return;
-    const scaleX = node.scaleX(); const scaleY = node.scaleY();
-    node.scaleX(1); node.scaleY(1);
-    resizeObject(id, Math.max(20, width * scaleX), Math.max(20, height * scaleY));
+    // Read live values from the node — avoids stale closure on width/height
+    const newW = Math.max(20, node.width() * node.scaleX());
+    const newH = Math.max(20, node.height() * node.scaleY());
+    const newX = node.x();
+    const newY = node.y();
+    // Bake scale back into dimensions
+    node.scaleX(1);
+    node.scaleY(1);
+    node.width(newW);
+    node.height(newH);
+    resizeObject(id, newW, newH);
+    moveObject(id, newX, newY);
   };
 
   return (
     <>
-      <Group
-        ref={groupRef} x={x} y={y} rotation={rotation}
-        draggable opacity={isDragging ? 0.8 : 1}
-        onClick={(e) => { e.cancelBubble = true; toggleSelection(id, e.evt.shiftKey); }}
-        onTap={(e) => { e.cancelBubble = true; toggleSelection(id, false); }}
-        onDragStart={handleDragStart}
-        onDragMove={handleDragMove}
-        onDragEnd={handleDragEnd}
-        onTransformEnd={handleTransformEnd}
-      >
-        {img ? (
-          <KImage image={img} width={width} height={height} />
-        ) : (
-          <Rect
-            width={width} height={height}
-            fill="#1e293b"
-            stroke="#334155" strokeWidth={1}
-          />
-        )}
-        {isSelected && (
-          <Rect
-            width={width} height={height}
-            stroke="#667eea" strokeWidth={1.5}
-            dash={[5, 3]} fill="transparent"
-            listening={false}
-          />
-        )}
-      </Group>
+      {img ? (
+        <KImage
+          ref={imageRef}
+          image={img}
+          x={x} y={y}
+          width={width} height={height}
+          rotation={rotation}
+          draggable
+          opacity={isDragging ? 0.8 : 1}
+          onClick={(e) => { e.cancelBubble = true; toggleSelection(id, e.evt.shiftKey); }}
+          onTap={(e) => { e.cancelBubble = true; toggleSelection(id, false); }}
+          onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
+          onDragEnd={handleDragEnd}
+          onTransformEnd={handleTransformEnd}
+        />
+      ) : (
+        /* Placeholder while image loads */
+        <Rect
+          x={x} y={y}
+          width={width} height={height}
+          fill="#1e293b"
+          stroke="#334155" strokeWidth={1}
+          onClick={(e) => { e.cancelBubble = true; toggleSelection(id, e.evt.shiftKey); }}
+          onTap={(e) => { e.cancelBubble = true; toggleSelection(id, false); }}
+        />
+      )}
+
+      {/* Selection highlight */}
+      {isSelected && (
+        <Rect
+          x={x} y={y}
+          width={width} height={height}
+          stroke="#667eea" strokeWidth={1.5}
+          dash={[5, 3]} fill="transparent"
+          listening={false}
+        />
+      )}
+
       {isSelected && (
         <Transformer
           ref={transformerRef}
