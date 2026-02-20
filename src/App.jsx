@@ -5,7 +5,6 @@ import { database } from './lib/firebase';
 import { BoardProvider } from './context/BoardContext';
 import Canvas from './components/Canvas';
 import Toolbar from './components/Toolbar';
-import PresencePanel from './components/PresencePanel';
 import SignInPage from './components/SignInPage';
 import SignUpPage from './components/SignUpPage';
 import BoardListPage from './components/BoardListPage';
@@ -260,7 +259,6 @@ function BoardLayout({ boardId, onBackToList }) {
       <div className="main-content">
         <aside className={`sidebar${sidebarCollapsed ? ' collapsed' : ''}`}>
           <Toolbar isCollapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
-          {!sidebarCollapsed && <PresencePanel />}
         </aside>
         <main className="canvas-wrapper">
           <Canvas />

@@ -20,7 +20,7 @@ function getInitials(name) {
 const MAX_BUBBLES = 5;
 
 export default function EnhancedPresence() {
-  const { presence, activeEdits } = useBoard();
+  const { presence, activeEdits, followUserId, setFollowUserId } = useBoard();
   const { user } = useUser();
   const [now, setNow] = useState(Date.now());
   const [showPanel, setShowPanel] = useState(false);
@@ -130,6 +130,7 @@ export default function EnhancedPresence() {
           {allUsers.map(({ uid, name, isMe, lastSeen }) => {
             const activity = isMe ? 'Active now' : getUserActivity(uid);
             const time = isMe ? '' : getTimeSince(lastSeen);
+            const isFollowing = followUserId === uid;
             return (
               <div key={uid} style={{
                 display: 'flex', alignItems: 'center', gap: 10,
@@ -145,13 +146,32 @@ export default function EnhancedPresence() {
                   {getInitials(name)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: '#E2E8F0', fontSize: '0.82rem', fontWeight: 500, truncate: true }}>
+                  <div style={{ color: '#E2E8F0', fontSize: '0.82rem', fontWeight: 500 }}>
                     {name}{isMe ? ' (you)' : ''}
                   </div>
                   <div style={{ color: isMe ? '#6EE7B7' : '#94A3B8', fontSize: '0.72rem' }}>
                     {activity}{time ? ` · ${time}` : ''}
                   </div>
                 </div>
+                {!isMe && (
+                  <button
+                    onClick={() => setFollowUserId(isFollowing ? null : uid)}
+                    title={isFollowing ? 'Stop following' : `Follow ${name}`}
+                    style={{
+                      background: isFollowing ? 'rgba(110,231,183,0.15)' : 'rgba(255,255,255,0.07)',
+                      border: `1px solid ${isFollowing ? 'rgba(110,231,183,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                      borderRadius: 6,
+                      color: isFollowing ? '#6EE7B7' : '#94A3B8',
+                      fontSize: '0.68rem',
+                      padding: '3px 7px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isFollowing ? '✓ Following' : 'Follow'}
+                  </button>
+                )}
               </div>
             );
           })}
