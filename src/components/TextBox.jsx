@@ -4,7 +4,8 @@ import { useBoard } from '../context/BoardContext';
 
 export default function TextBox({ id, data }) {
   const {
-    moveObject, deleteObject, resizeObject, updateObject,
+    moveObjectLocal,
+    moveObject, moveObjectGroup, deleteObject, resizeObject, updateObject,
     selectedIds, toggleSelection, startEditing, stopEditing,
   } = useBoard();
 
@@ -42,6 +43,7 @@ export default function TextBox({ id, data }) {
 
   const handleDragStart = () => { setIsDragging(true); startEditing(id); };
   const handleDragMove = (e) => {
+    moveObjectLocal(id, e.target.x(), e.target.y());
     if (!dragThrottleRef.current) {
       dragThrottleRef.current = setTimeout(() => {
         moveObject(id, e.target.x(), e.target.y());
@@ -52,7 +54,7 @@ export default function TextBox({ id, data }) {
   const handleDragEnd = (e) => {
     clearTimeout(dragThrottleRef.current);
     dragThrottleRef.current = null;
-    moveObject(id, e.target.x(), e.target.y());
+    moveObjectGroup(id, e.target.x(), e.target.y());
     setIsDragging(false);
     stopEditing(id);
   };

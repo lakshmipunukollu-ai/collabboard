@@ -2,8 +2,43 @@ import { useMemo } from 'react';
 import { Arrow, Text, Rect, Group } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
 
+function getPortPos(obj, port) {
+  const w = obj.width || 100;
+  const h = obj.height || 100;
+  switch (port) {
+    case 'top':    return { x: obj.x + w / 2, y: obj.y };
+    case 'bottom': return { x: obj.x + w / 2, y: obj.y + h };
+    case 'left':   return { x: obj.x,         y: obj.y + h / 2 };
+    case 'right':  return { x: obj.x + w,     y: obj.y + h / 2 };
+    default:       return { x: obj.x + w / 2, y: obj.y + h / 2 };
+  }
+}
+
+function getObjectCenter(obj) {
+  const w = obj.width || 100;
+  const h = obj.height || 100;
+  return { x: obj.x + w / 2, y: obj.y + h / 2 };
+}
+
+function getBestPorts(startObj, endObj) {
+  const startCenter = getObjectCenter(startObj);
+  const endCenter = getObjectCenter(endObj);
+  const dx = endCenter.x - startCenter.x;
+  const dy = endCenter.y - startCenter.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? { startPort: 'right', endPort: 'left' }
+      : { startPort: 'left', endPort: 'right' };
+  }
+
+  return dy >= 0
+    ? { startPort: 'bottom', endPort: 'top' }
+    : { startPort: 'top', endPort: 'bottom' };
+}
+
 export default function Connector({ id, data }) {
-  const { objects, selectedIds, toggleSelection, deleteObject, updateObject } = useBoard();
+  const { objects, selectedIds, toggleSelection } = useBoard();
   const isSelected = selectedIds.has(id);
 
   const {
@@ -22,10 +57,9 @@ export default function Connector({ id, data }) {
   const points = useMemo(() => {
     if (!startObj || !endObj) return null;
 
-    const startX = startObj.x + (startObj.width || 100) / 2;
-    const startY = startObj.y + (startObj.height || 100) / 2;
-    const endX = endObj.x + (endObj.width || 100) / 2;
-    const endY = endObj.y + (endObj.height || 100) / 2;
+    const { startPort, endPort } = getBestPorts(startObj, endObj);
+    const { x: startX, y: startY } = getPortPos(startObj, startPort);
+    const { x: endX, y: endY } = getPortPos(endObj, endPort);
 
     if (arrowStyle === 'curved') {
       const midX = (startX + endX) / 2;
@@ -53,14 +87,8 @@ export default function Connector({ id, data }) {
     toggleSelection(id, e.evt.shiftKey);
   };
 
-  const handleDblClick = (e) => {
-    e.cancelBubble = true;
-    const newLabel = window.prompt('Connector label:', label);
-    if (newLabel !== null) updateObject(id, { label: newLabel });
-  };
-
   return (
-    <Group onDblClick={handleDblClick}>
+    <Group>
       <Arrow
         points={points}
         stroke={isSelected ? '#3B82F6' : color}

@@ -3,7 +3,7 @@ import { Group, Arrow, Circle } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
 
 export default function BoardArrow({ id, data }) {
-  const { deleteObject, updateObject, selectedIds, toggleSelection } = useBoard();
+  const { deleteObject, updateObject, objects, selectedIds, toggleSelection } = useBoard();
 
   const {
     x1 = 0, y1 = 0, x2 = 150, y2 = 0,
@@ -26,10 +26,30 @@ export default function BoardArrow({ id, data }) {
 
   const handleDragStart = (endpoint) => (e) => { e.cancelBubble = true; };
   const handleDragMove = (endpoint) => (e) => {
+    const nx1 = endpoint === 'start' ? e.target.x() : x1;
+    const ny1 = endpoint === 'start' ? e.target.y() : y1;
+    const nx2 = endpoint === 'end' ? e.target.x() : x2;
+    const ny2 = endpoint === 'end' ? e.target.y() : y2;
+    const centerX = (nx1 + nx2) / 2;
+    const centerY = (ny1 + ny2) / 2;
+
+    let parentFrameId = null;
+    for (const [objId, obj] of Object.entries(objects)) {
+      if (obj.type !== 'frame') continue;
+      const fx = obj.x || 0;
+      const fy = obj.y || 0;
+      const fw = obj.width || 600;
+      const fh = obj.height || 400;
+      if (centerX >= fx && centerX <= fx + fw && centerY >= fy && centerY <= fy + fh) {
+        parentFrameId = objId;
+        break;
+      }
+    }
+
     if (endpoint === 'start') {
-      updateObject(id, { x1: e.target.x(), y1: e.target.y() });
+      updateObject(id, { x1: nx1, y1: ny1, parentFrameId });
     } else {
-      updateObject(id, { x2: e.target.x(), y2: e.target.y() });
+      updateObject(id, { x2: nx2, y2: ny2, parentFrameId });
     }
   };
 

@@ -123,6 +123,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
   const [presence, setPresence] = useState({});
   const [followUserId, setFollowUserId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [connectorStyle, setConnectorStyle] = useState('straight');
   const [snapToGrid, setSnapToGridState] = useState(false);
   const snapToGridRef = useRef(false);
   const setSnapToGrid = useCallback((v) => {
@@ -148,6 +149,15 @@ export function BoardProvider({ children, boardId = 'default' }) {
   // Keep a ref to merged objects for use in callbacks without triggering re-renders
   const objectsRef = useRef(objects);
   objectsRef.current = objects;
+
+  // Keep a ref to selectedIds so callbacks don't need it as a dependency
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+
+  // Keep a ref to userPermission so moveObject / resizeObject (which use [] deps) always
+  // read the current permission without recreating on every permission change.
+  const userPermissionRef = useRef(userPermission);
+  userPermissionRef.current = userPermission;
 
   /** Serialized board state (id, type, x, y, width, height, color, text) for view/export and for AI (boardState in API). */
   const getBoardState = useCallback(() => {
@@ -544,8 +554,35 @@ export function BoardProvider({ children, boardId = 'default' }) {
     });
   }, []);
 
-  const moveObject = useCallback((objectId, x, y) => {
-    if (userPermission !== 'edit' && userPermission !== 'owner') {
+  // Local-only move used during drag for smooth connector updates (no Firebase writes).
+  const moveObjectLocal = useCallback((objectId, x, y) => {
+    const currentObj = objectsRef.current[objectId] || {};
+    setOptimisticUpdates((prev) => ({
+      ...prev,
+      [objectId]: {
+        ...currentObj,
+        x: Number(x),
+        y: Number(y),
+        updatedAt: Date.now(),
+      },
+    }));
+  }, []);
+
+  // Local-only partial update (no Firebase write), useful for smooth drag previews.
+  const updateObjectLocal = useCallback((objectId, payload) => {
+    const currentObj = objectsRef.current[objectId] || {};
+    setOptimisticUpdates((prev) => ({
+      ...prev,
+      [objectId]: {
+        ...currentObj,
+        ...payload,
+        updatedAt: Date.now(),
+      },
+    }));
+  }, []);
+
+  const moveObject = useCallback((objectId, x, y, options = {}) => {
+    if (userPermissionRef.current !== 'edit' && userPermissionRef.current !== 'owner') {
       return;
     }
     const snap = (v) => snapToGridRef.current ? Math.round(v / 40) * 40 : v;
@@ -557,8 +594,9 @@ export function BoardProvider({ children, boardId = 'default' }) {
     let parentFrameId = currentObj.parentFrameId || null;
     const allObjects = objectsRef.current;
     
-    // Only check frame relationship if this isn't a frame itself
-    if (currentObj.type !== 'frame') {
+    // Only check frame relationship if this isn't a frame itself.
+    // During frame drag we can skip this check to avoid detaching children from their frame.
+    if (!options.skipFrameDetection && currentObj.type !== 'frame') {
       // Find if this object is now inside a frame
       let foundFrame = null;
       for (const [frameId, frameObj] of Object.entries(allObjects)) {
@@ -605,6 +643,23 @@ export function BoardProvider({ children, boardId = 'default' }) {
       updatedAt: serverTimestamp(),
     });
   }, []);
+
+  // Moves a dragged object; if multiple objects are selected, moves all of them by the same delta
+  const moveObjectGroup = useCallback((objectId, x, y) => {
+    const currentIds = selectedIdsRef.current;
+    const obj = objectsRef.current[objectId];
+    if (!obj) return;
+    if (currentIds.size <= 1) {
+      moveObject(objectId, x, y);
+      return;
+    }
+    const dx = x - obj.x;
+    const dy = y - obj.y;
+    currentIds.forEach((sid) => {
+      const s = objectsRef.current[sid];
+      if (s) moveObject(sid, s.x + dx, s.y + dy);
+    });
+  }, [moveObject]);
 
   const groupObjects = useCallback((objectIds) => {
     if (!user || (userPermission !== 'edit' && userPermission !== 'owner')) return;
@@ -678,7 +733,7 @@ export function BoardProvider({ children, boardId = 'default' }) {
   }, [userPermission, boardId]);
 
   const resizeObject = useCallback((objectId, width, height) => {
-    if (userPermission !== 'edit' && userPermission !== 'owner') {
+    if (userPermissionRef.current !== 'edit' && userPermissionRef.current !== 'owner') {
       return;
     }
     const currentObj = objectsRef.current[objectId] || {};
@@ -720,6 +775,19 @@ export function BoardProvider({ children, boardId = 'default' }) {
         }
       });
     }
+
+    // Cascade-delete any connectors attached to this object
+    Object.entries(objectsRef.current).forEach(([cId, cObj]) => {
+      if (
+        cObj.type === 'connector' &&
+        (cObj.startObjectId === objectId || cObj.endObjectId === objectId)
+      ) {
+        setOptimisticUpdates((prev) => { const n = { ...prev }; delete n[cId]; return n; });
+        setFirebaseObjects((prev) => { const n = { ...prev }; delete n[cId]; return n; });
+        setSelectedIds((prev) => { const n = new Set(prev); n.delete(cId); return n; });
+        remove(ref(database, `boards/${boardId}/objects/${cId}`));
+      }
+    });
     
     // Optimistic: remove from local state immediately
     setOptimisticUpdates((prev) => {
@@ -872,10 +940,10 @@ export function BoardProvider({ children, boardId = 'default' }) {
     setSelectedIds(new Set(newIds));
   }, []);
 
-  const createConnector = useCallback((startObjectId, endObjectId, arrowStyle = 'straight', color = '#64748b') => {
-    if (!user) return;
+  const createConnector = useCallback((startObjectId, endObjectId, arrowStyle = 'straight', color = '#64748b', startPort = null, endPort = null) => {
+    if (!user) return null;
     if (userPermission !== 'edit' && userPermission !== 'owner') {
-      return;
+      return null;
     }
     
     const id = generateId();
@@ -888,6 +956,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
       color,
       strokeWidth: 2,
       arrowStyle,
+      startPort,
+      endPort,
       createdAt: Date.now(),
       createdBy: user.id,
       createdByName: displayName,
@@ -911,6 +981,8 @@ export function BoardProvider({ children, boardId = 'default' }) {
     }).catch(err => {
       console.error('Failed to create connector:', err);
     });
+
+    return id;
   }, [user, userPermission, boardId, logHistory]);
 
   const createFrame = useCallback((x, y, width = 600, height = 400, title = 'Frame') => {
@@ -1040,9 +1112,14 @@ export function BoardProvider({ children, boardId = 'default' }) {
     createMindMapNode,
     createConnector,
     createFrame,
+    connectorStyle,
+    setConnectorStyle,
     snapToGrid,
     setSnapToGrid,
+    moveObjectLocal,
+    updateObjectLocal,
     moveObject,
+    moveObjectGroup,
     updateObject,
     resizeObject,
     deleteObject,

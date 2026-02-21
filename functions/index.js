@@ -344,12 +344,18 @@ function buildTools(actions) {
       description:
         'Create a frame and pre-populate it with sticky notes inside. ' +
         'Use this whenever the user asks to create a frame AND add content inside it — ' +
-        'do NOT use separate createFrame + createStickyNote calls for this.',
+        'do NOT use separate createFrame + createStickyNote calls for this. ' +
+        'To connect notes inside the frame, use the connections field with 0-based note indices ' +
+        '(e.g. [{from:0,to:1}] connects the first note to the second). ' +
+        'NEVER use createConnector to connect notes just created by this tool — use connections instead.',
       parameters: z.object({
         title: z.string().nullish().describe('Frame title. Default: "Frame".'),
         width: z.number().nullish().describe('Frame width. Default 600.'),
         height: z.number().nullish().describe('Frame height. Default 400.'),
         notes: z.array(z.string()).nullish().describe('Text for each sticky note inside the frame.'),
+        connections: z.array(
+          z.object({ from: z.number().describe('0-based index of source note.'), to: z.number().describe('0-based index of target note.') })
+        ).nullish().describe('Connect notes by 0-based index. E.g. [{from:0,to:1}] connects note 0 → note 1.'),
       }),
       execute: async (args) => {
         actions.push({
@@ -358,6 +364,7 @@ function buildTools(actions) {
           width: args.width ?? 600,
           height: args.height ?? 400,
           notes: args.notes ?? [],
+          connections: args.connections ?? [],
         });
         return `Created frame "${args.title ?? 'Frame'}" with ${(args.notes ?? []).length} notes inside.`;
       },
@@ -384,12 +391,18 @@ strengths:["Expert content","Scalable model"], weaknesses:["High competition","T
 opportunities:["Growing remote demand","Subscriptions"], threats:["Free rivals","Platform risk"].
 3. Multi-step requests: call all needed tools in one turn. Example — "add 3 notes then \
 arrange in a row": call createStickyNote three times, then spaceEvenly(objectIds:[]). \
-When the user asks to create a frame AND put content inside it, use createFrameWithNotes \
-instead of separate createFrame + createStickyNote calls.
+When the user asks to create a frame AND put content inside it, ALWAYS use createFrameWithNotes — \
+NEVER use separate createFrame + createStickyNote calls.
 4. Grid layout: after creating N shapes, call arrangeInGrid(objectIds:[], rows, cols).
-5. For manipulation (move/resize/color/text/connect/delete), use exact IDs from board state.
-6. You can delete individual objects with deleteObject(objectId) or clear everything with clearBoard().
-7. After calling tools, reply with one short sentence confirming what was done.${boardStateBlurb}`;
+5. CONNECTORS — two strict rules: \
+(a) createConnector can ONLY use IDs that already exist in the board state shown below. \
+NEVER invent or guess IDs for objects you are creating in this same turn. \
+(b) To connect sticky notes INSIDE a frame you are creating right now, use the \
+'connections' field of createFrameWithNotes (e.g. connections:[{from:0,to:1}]) — \
+do NOT call createConnector for those notes.
+6. For manipulation (move/resize/color/text/connect/delete), use exact IDs from board state.
+7. You can delete individual objects with deleteObject(objectId) or clear everything with clearBoard().
+8. After calling tools, reply with one short sentence confirming what was done.${boardStateBlurb}`;
 }
 
 // ─── Action post-processing helpers ──────────────────────────────────────────

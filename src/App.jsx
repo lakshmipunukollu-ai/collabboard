@@ -273,14 +273,25 @@ function BoardLayout({ boardId, onBackToList }) {
 }
 
 // ─── Root App ─────────────────────────────────────────────────────────────
-export default function App() {
-  const currentPath = window.location.pathname;
-  const [selectedBoardId, setSelectedBoardId] = useState(null);
+function getBoardIdFromPath(pathname) {
+  const match = pathname.match(/^\/board\/([^/]+)/);
+  return match ? match[1] : null;
+}
 
+export default function App() {
+  // Lazy initializer reads URL once at mount — no flash to board list on hard refresh
+  const [selectedBoardId, setSelectedBoardId] = useState(() =>
+    getBoardIdFromPath(window.location.pathname)
+  );
+
+  // Handle browser back / forward navigation
   useEffect(() => {
-    const match = currentPath.match(/^\/board\/([^/]+)/);
-    setSelectedBoardId(match ? match[1] : null);
-  }, [currentPath]);
+    const onPopState = () => {
+      setSelectedBoardId(getBoardIdFromPath(window.location.pathname));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const handleSelectBoard = (boardId) => {
     window.history.pushState({}, '', `/board/${boardId}`);
@@ -292,7 +303,7 @@ export default function App() {
     setSelectedBoardId(null);
   };
 
-  if (currentPath === '/sign-up') {
+  if (window.location.pathname === '/sign-up') {
     return (
       <>
         <SignedIn>

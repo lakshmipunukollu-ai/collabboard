@@ -6,7 +6,9 @@ import { showToast } from './Toast';
 
 export default function BoardShape({ id, data }) {
   const { 
-    moveObject, 
+    moveObjectLocal,
+    moveObject,
+    moveObjectGroup,
     deleteObject, 
     resizeObject,
     updateObject,
@@ -75,6 +77,7 @@ export default function BoardShape({ id, data }) {
     const newX = e.target.x();
     const newY = e.target.y();
     lastDragPosRef.current = { x: newX, y: newY };
+    moveObjectLocal(id, newX, newY);
     
     // Throttle Firebase writes to every 50ms during drag
     if (!dragThrottleRef.current) {
@@ -104,8 +107,8 @@ export default function BoardShape({ id, data }) {
       e.target.y(finalY);
     }
     
-    // Final position update
-    moveObject(id, finalX, finalY);
+    // Final position update — moves all selected objects if multi-select is active
+    moveObjectGroup(id, finalX, finalY);
     setIsDragging(false);
     stopEditing(id);
   };

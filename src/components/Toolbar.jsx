@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import { useBoard } from '../context/BoardContext';
 import { showToast } from './Toast';
 import ClearBoardButton from './ClearBoardButton';
@@ -9,16 +9,14 @@ const STICKY_COLORS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FECACA', '#FDE68A'];
 
 export default function Toolbar({ isCollapsed, onToggleCollapse }) {
   const {
-    createStickyNote, createShape, createConnector, createFrame,
+    createStickyNote, createShape, createFrame,
     createTextBox, createArrow, createImage,
     createKanban, createTable, createCodeBlock, createEmbed, createMindMapNode,
-    getBoardState, stageRef, selectedIds, userPermission,
+    getBoardState, stageRef, userPermission,
+    connectorStyle, setConnectorStyle,
   } = useBoard();
   const imageInputRef = useRef(null);
-  const [connectorMode, setConnectorMode] = useState(false);
   const [boardStateModalOpen, setBoardStateModalOpen] = useState(false);
-  const [connectorStyle, setConnectorStyle] = useState('arrow');
-  const [firstSelectedForConnector, setFirstSelectedForConnector] = useState(null);
 
   const canEdit = userPermission === 'edit' || userPermission === 'owner';
 
@@ -136,43 +134,6 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
     e.target.value = '';
   }, [createImage, getBoardCenter]);
 
-  const toggleConnectorMode = useCallback(() => {
-    const newMode = !connectorMode;
-    setConnectorMode(newMode);
-    setFirstSelectedForConnector(null);
-    showToast(newMode ? '🔗 Click 2 objects to connect' : '✓ Connector mode off', 'info');
-  }, [connectorMode]);
-
-  useEffect(() => {
-    if (!connectorMode) return;
-    const selectedArray = Array.from(selectedIds);
-    if (selectedArray.length === 1 && !firstSelectedForConnector) {
-      setFirstSelectedForConnector(selectedArray[0]);
-      showToast('✓ First selected. Click another to connect.', 'info');
-    } else if (
-      selectedArray.length === 1 &&
-      firstSelectedForConnector &&
-      selectedArray[0] !== firstSelectedForConnector
-    ) {
-      createConnector(firstSelectedForConnector, selectedArray[0], connectorStyle);
-      showToast('🔗 Connector created!', 'success');
-      setFirstSelectedForConnector(null);
-    }
-  }, [selectedIds, connectorMode, firstSelectedForConnector, connectorStyle, createConnector]);
-
-  useEffect(() => {
-    if (!connectorMode) return;
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') {
-        setConnectorMode(false);
-        setFirstSelectedForConnector(null);
-        showToast('✓ Connector mode exited', 'info');
-      }
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [connectorMode]);
-
   const collapsed = isCollapsed;
 
   const Btn = ({ icon, label, onClick, disabled, title, className = '' }) => (
@@ -234,13 +195,6 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
         onClick={canEdit ? handleAddOval : undefined}
         disabled={!canEdit}
         title={canEdit ? 'Oval (O)' : 'View-only'}
-      />
-      <Btn
-        icon="🔗" label={connectorMode ? 'Connecting…' : 'Connector'}
-        onClick={canEdit ? toggleConnectorMode : undefined}
-        disabled={!canEdit}
-        title={canEdit ? 'Connect objects' : 'View-only'}
-        className={connectorMode ? 'active' : ''}
       />
       <Btn
         icon="📦" label="Frame"
@@ -308,9 +262,10 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
         title={canEdit ? 'Mind map node' : 'View-only'}
       />
 
-      {/* Connector style selector (only when in connector mode and not collapsed) */}
-      {connectorMode && !collapsed && (
+      {/* Connector style selector — always visible when sidebar is expanded */}
+      {!collapsed && (
         <div style={{ padding: '4px 6px' }}>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: 3 }}>Connector style</div>
           <select
             value={connectorStyle}
             onChange={(e) => setConnectorStyle(e.target.value)}
@@ -325,8 +280,7 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
               cursor: 'pointer',
             }}
           >
-            <option value="arrow">→ Arrow</option>
-            <option value="line">─ Line</option>
+            <option value="straight">→ Straight</option>
             <option value="curved">⤴ Curved</option>
             <option value="elbowed">⌐ Elbowed</option>
           </select>

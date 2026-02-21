@@ -4,7 +4,8 @@ import { useBoard } from '../context/BoardContext';
 
 export default function BoardImage({ id, data }) {
   const {
-    moveObject, deleteObject, resizeObject,
+    moveObjectLocal,
+    moveObject, moveObjectGroup, deleteObject, resizeObject,
     selectedIds, toggleSelection, startEditing, stopEditing,
   } = useBoard();
 
@@ -50,6 +51,7 @@ export default function BoardImage({ id, data }) {
 
   const handleDragStart = () => { setIsDragging(true); startEditing(id); };
   const handleDragMove = (e) => {
+    moveObjectLocal(id, e.target.x(), e.target.y());
     if (!dragThrottleRef.current) {
       dragThrottleRef.current = setTimeout(() => {
         moveObject(id, e.target.x(), e.target.y());
@@ -60,7 +62,7 @@ export default function BoardImage({ id, data }) {
   const handleDragEnd = (e) => {
     clearTimeout(dragThrottleRef.current);
     dragThrottleRef.current = null;
-    moveObject(id, e.target.x(), e.target.y());
+    moveObjectGroup(id, e.target.x(), e.target.y());
     setIsDragging(false);
     stopEditing(id);
   };

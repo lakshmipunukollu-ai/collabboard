@@ -258,17 +258,31 @@ export default function AIAssistant() {
           const sw = fw - 2 * pad;
           const sh = 72;
           const noteGap = 12;
+          // Collect created sticky IDs so index-based connections can be wired up after
+          const frameNoteIds = [];
           notes.forEach((text, idx) => {
             const nx = fx + pad;
             const ny = fy + titleH + pad + idx * (sh + noteGap);
             const stickyId = createStickyNote(String(text), nx, ny, STICKY_COLORS[idx % STICKY_COLORS.length], sw, sh);
             if (stickyId) {
               createdIdsThisBatch.push(stickyId);
+              frameNoteIds.push(stickyId);
               requestAnimationFrame(() => setTimeout(() => {
                 updateObject(stickyId, { parentFrameId: frameId });
               }, 0));
             }
           });
+          // Wire connections by note index (e.g. [{from:0,to:1}]) using real generated IDs
+          const connections = action.connections ?? [];
+          if (connections.length > 0 && frameNoteIds.length > 1) {
+            requestAnimationFrame(() => setTimeout(() => {
+              connections.forEach(({ from, to }) => {
+                const fromId = frameNoteIds[from];
+                const toId = frameNoteIds[to];
+                if (fromId && toId) createConnector(fromId, toId, 'straight');
+              });
+            }, 150));
+          }
           showToast('Frame with notes created', 'success');
         } else if (action.type === 'createConnector') {
           if (action.fromId && action.toId) {
@@ -518,7 +532,8 @@ export default function AIAssistant() {
 
     if (hasCreates && setDeferPan && setRequestCenterView) {
       setDeferPan(false);
-      setRequestCenterView(firstCenter);
+      // Pan to where new content was placed, not the old board center
+      setRequestCenterView(layoutCenter);
     }
     if (createdIdsThisBatch.length > 1 && !didArrangeInGrid) {
       showToast(`Added ${createdIdsThisBatch.length} shapes`, 'success');

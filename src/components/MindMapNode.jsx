@@ -4,7 +4,8 @@ import { useBoard } from '../context/BoardContext';
 
 export default function MindMapNode({ id, data }) {
   const {
-    moveObject, deleteObject, updateObject,
+    moveObjectLocal,
+    moveObject, moveObjectGroup, deleteObject, updateObject,
     selectedIds, toggleSelection, startEditing, stopEditing,
   } = useBoard();
 
@@ -43,6 +44,7 @@ export default function MindMapNode({ id, data }) {
 
   const handleDragStart = () => { setIsDragging(true); startEditing(id); };
   const handleDragMove = (e) => {
+    moveObjectLocal(id, e.target.x(), e.target.y());
     if (!dragThrottleRef.current) {
       dragThrottleRef.current = setTimeout(() => {
         moveObject(id, e.target.x(), e.target.y());
@@ -53,7 +55,7 @@ export default function MindMapNode({ id, data }) {
   const handleDragEnd = (e) => {
     clearTimeout(dragThrottleRef.current);
     dragThrottleRef.current = null;
-    moveObject(id, e.target.x(), e.target.y());
+    moveObjectGroup(id, e.target.x(), e.target.y());
     setIsDragging(false);
     stopEditing(id);
   };

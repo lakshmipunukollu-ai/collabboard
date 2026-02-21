@@ -1,23 +1,47 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { database } from '../lib/firebase';
+import { setSaveStatus } from './AutoSaveIndicator';
 
 export default function ConnectionStatus() {
-  const [isConnected, setIsConnected] = useState(true);
+  const [status, setStatus] = useState('connected'); // 'connected' | 'offline' | 'reconnected'
+  const reconnectedTimerRef = useRef(null);
+  const firstLoadRef = useRef(true);
 
   useEffect(() => {
     const connectedRef = ref(database, '.info/connected');
-    
     const unsubscribe = onValue(connectedRef, (snapshot) => {
-      const connected = snapshot.val();
-      setIsConnected(connected === true);
+      const connected = snapshot.val() === true;
+
+      if (firstLoadRef.current) {
+        // Don't flash "reconnected" on initial load
+        firstLoadRef.current = false;
+        setStatus(connected ? 'connected' : 'offline');
+        if (!connected) setSaveStatus('error');
+        return;
+      }
+
+      if (connected) {
+        // Brief "Reconnected" flash before hiding
+        setStatus('reconnected');
+        setSaveStatus('saved');
+        if (reconnectedTimerRef.current) clearTimeout(reconnectedTimerRef.current);
+        reconnectedTimerRef.current = setTimeout(() => setStatus('connected'), 2500);
+      } else {
+        setStatus('offline');
+        setSaveStatus('error');
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (reconnectedTimerRef.current) clearTimeout(reconnectedTimerRef.current);
+    };
   }, []);
 
-  // Don't show anything if connected
-  if (isConnected) return null;
+  if (status === 'connected') return null;
+
+  const isOffline = status === 'offline';
 
   return (
     <div
@@ -26,37 +50,31 @@ export default function ConnectionStatus() {
         top: 60,
         left: '50%',
         transform: 'translateX(-50%)',
-        background: '#F59E0B',
+        background: isOffline ? '#EF4444' : '#10B981',
         color: 'white',
-        padding: '8px 16px',
+        padding: '8px 20px',
         borderRadius: 8,
-        fontSize: '0.875rem',
-        fontWeight: 500,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-        zIndex: 1000,
+        fontSize: '0.82rem',
+        fontWeight: 600,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+        zIndex: 2000,
         display: 'flex',
         alignItems: 'center',
         gap: 8,
+        whiteSpace: 'nowrap',
       }}
     >
-      <div
-        style={{
-          width: 12,
-          height: 12,
-          border: '2px solid white',
-          borderTopColor: 'transparent',
-          borderRadius: '50%',
-          animation: 'spin 1s linear infinite',
-        }}
-      />
-      <style>
-        {`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}
-      </style>
-      Reconnecting...
+      {isOffline ? (
+        <>
+          <span style={{ fontSize: '1rem' }}>⚡</span>
+          You are offline — changes will sync when reconnected
+        </>
+      ) : (
+        <>
+          <span style={{ fontSize: '1rem' }}>✓</span>
+          Reconnected
+        </>
+      )}
     </div>
   );
 }

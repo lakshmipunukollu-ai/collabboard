@@ -5,7 +5,10 @@ import { useUser } from '@clerk/clerk-react';
 
 export default function Frame({ id, data }) {
   const { 
-    moveObject, 
+    moveObjectLocal,
+    updateObjectLocal,
+    moveObject,
+    moveObjectGroup,
     updateObject,
     resizeObject,
     deleteObject,
@@ -23,6 +26,9 @@ export default function Frame({ id, data }) {
   const transformerRef = useRef(null);
   const dragThrottleRef = useRef(null);
   const lastDragPosRef = useRef({ x: 0, y: 0 });
+  // Snapshot of frame + all children positions taken at dragStart.
+  // Every throttle tick uses totalDelta from this snapshot — immune to stale closures.
+  const dragStartRef = useRef(null);
   
   const activeEdit = activeEdits[id];
   const isBeingEditedByOther = activeEdit && activeEdit.userId !== user?.id;
@@ -37,10 +43,12 @@ export default function Frame({ id, data }) {
     borderColor = '#64748b',
   } = data;
 
-  // Attach transformer when selected
+  // Attach transformer when selected and bring it to the top of the layer
+  // so its handles are never hidden under sticky notes or other objects inside the frame
   useEffect(() => {
     if (isSelected && transformerRef.current && groupRef.current) {
       transformerRef.current.nodes([groupRef.current]);
+      transformerRef.current.moveToTop();
       transformerRef.current.getLayer()?.batchDraw();
     }
   }, [isSelected, width, height]);
@@ -63,28 +71,99 @@ export default function Frame({ id, data }) {
     setIsDragging(true);
     startEditing(id);
     lastDragPosRef.current = { x, y };
+
+    // Snapshot frame origin + all children positions at drag start.
+    // Using objects from context here is fine — this runs once synchronously.
+    const isInsideFrame = (obj) => {
+      const frameLeft = x;
+      const frameTop = y;
+      const frameRight = x + width;
+      const frameBottom = y + height;
+
+      if (obj.type === 'arrow') {
+        const cx = ((obj.x1 ?? 0) + (obj.x2 ?? 0)) / 2;
+        const cy = ((obj.y1 ?? 0) + (obj.y2 ?? 0)) / 2;
+        return cx >= frameLeft && cx <= frameRight && cy >= frameTop && cy <= frameBottom;
+      }
+
+      const objW = obj.width || 100;
+      const objH = obj.height || 100;
+      const cx = (obj.x ?? 0) + objW / 2;
+      const cy = (obj.y ?? 0) + objH / 2;
+      return cx >= frameLeft && cx <= frameRight && cy >= frameTop && cy <= frameBottom;
+    };
+
+    const children = {};
+    Object.entries(objects).forEach(([childId, child]) => {
+      if (childId === id || child.type === 'frame' || child.type === 'connector') return;
+      if (child.parentFrameId === id || isInsideFrame(child)) {
+        if (child.type === 'arrow') {
+          children[childId] = {
+            type: 'arrow',
+            x1: child.x1 ?? 0,
+            y1: child.y1 ?? 0,
+            x2: child.x2 ?? 0,
+            y2: child.y2 ?? 0,
+          };
+        } else {
+          children[childId] = { type: 'default', x: child.x ?? 0, y: child.y ?? 0 };
+        }
+      }
+    });
+    dragStartRef.current = { frameX: x, frameY: y, children };
   };
 
   const handleDragMove = (e) => {
     const newX = e.target.x();
     const newY = e.target.y();
-    
     lastDragPosRef.current = { x: newX, y: newY };
-    
-    // Throttle Firebase writes
+
+    // Update local state on every frame for smooth connector tracking while dragging.
+    const start = dragStartRef.current;
+    if (start) {
+      const totalDX = newX - start.frameX;
+      const totalDY = newY - start.frameY;
+      Object.entries(start.children).forEach(([childId, childStart]) => {
+        if (childStart.type === 'arrow') {
+          updateObjectLocal(childId, {
+            x1: childStart.x1 + totalDX,
+            y1: childStart.y1 + totalDY,
+            x2: childStart.x2 + totalDX,
+            y2: childStart.y2 + totalDY,
+            parentFrameId: id,
+          });
+        } else {
+          moveObjectLocal(childId, childStart.x + totalDX, childStart.y + totalDY);
+        }
+      });
+    }
+    moveObjectLocal(id, newX, newY);
+
+    // Throttle Firebase writes to once per 50 ms
     if (!dragThrottleRef.current) {
       dragThrottleRef.current = setTimeout(() => {
-        // Move children with the frame
-        const deltaX = newX - x;
-        const deltaY = newY - y;
-        
-        Object.entries(objects).forEach(([childId, child]) => {
-          if (child.parentFrameId === id) {
-            moveObject(childId, child.x + deltaX, child.y + deltaY);
-          }
-        });
-        
-        moveObject(id, lastDragPosRef.current.x, lastDragPosRef.current.y);
+        const latestX = lastDragPosRef.current.x;
+        const latestY = lastDragPosRef.current.y;
+        const dragStart = dragStartRef.current;
+        if (dragStart) {
+          // Total delta from drag-start — idempotent, no stale-closure drift
+          const totalDX = latestX - dragStart.frameX;
+          const totalDY = latestY - dragStart.frameY;
+          Object.entries(dragStart.children).forEach(([childId, childStart]) => {
+            if (childStart.type === 'arrow') {
+              updateObject(childId, {
+                x1: childStart.x1 + totalDX,
+                y1: childStart.y1 + totalDY,
+                x2: childStart.x2 + totalDX,
+                y2: childStart.y2 + totalDY,
+                parentFrameId: id,
+              });
+            } else {
+              moveObject(childId, childStart.x + totalDX, childStart.y + totalDY, { skipFrameDetection: true });
+            }
+          });
+        }
+        moveObject(id, latestX, latestY);
         dragThrottleRef.current = null;
       }, 50);
     }
@@ -95,21 +174,31 @@ export default function Frame({ id, data }) {
       clearTimeout(dragThrottleRef.current);
       dragThrottleRef.current = null;
     }
-    
-    let finalX = e.target.x();
-    let finalY = e.target.y();
-    
-    // Move children with frame
-    const deltaX = finalX - x;
-    const deltaY = finalY - y;
-    
-    Object.entries(objects).forEach(([childId, child]) => {
-      if (child.parentFrameId === id) {
-        moveObject(childId, child.x + deltaX, child.y + deltaY);
-      }
-    });
-    
-    moveObject(id, finalX, finalY);
+
+    const finalX = e.target.x();
+    const finalY = e.target.y();
+    const start = dragStartRef.current;
+
+    if (start) {
+      const totalDX = finalX - start.frameX;
+      const totalDY = finalY - start.frameY;
+      Object.entries(start.children).forEach(([childId, childStart]) => {
+        if (childStart.type === 'arrow') {
+          updateObject(childId, {
+            x1: childStart.x1 + totalDX,
+            y1: childStart.y1 + totalDY,
+            x2: childStart.x2 + totalDX,
+            y2: childStart.y2 + totalDY,
+            parentFrameId: id,
+          });
+        } else {
+          moveObject(childId, childStart.x + totalDX, childStart.y + totalDY, { skipFrameDetection: true });
+        }
+      });
+    }
+
+    moveObjectGroup(id, finalX, finalY);
+    dragStartRef.current = null;
     setIsDragging(false);
     stopEditing(id);
   };
@@ -126,18 +215,21 @@ export default function Frame({ id, data }) {
     const node = groupRef.current;
     if (!node) return;
 
+    // node.width() returns 0 for a Konva Group (no explicit width attribute).
+    // Use the stored width/height from data props instead — they are the actual dimensions.
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
+    const newWidth = Math.max(200, width * scaleX);
+    const newHeight = Math.max(150, height * scaleY);
+    const newX = node.x();
+    const newY = node.y();
 
     node.scaleX(1);
     node.scaleY(1);
 
-    const newWidth = Math.max(200, width * scaleX);
-    const newHeight = Math.max(150, height * scaleY);
-
     resizeObject(id, newWidth, newHeight);
-    moveObject(id, node.x(), node.y());
-    
+    moveObject(id, newX, newY);
+
     stopEditing(id);
   };
 
@@ -204,13 +296,17 @@ export default function Frame({ id, data }) {
         <Transformer
           ref={transformerRef}
           boundBoxFunc={(oldBox, newBox) => {
-            // Minimum size constraints
             if (newBox.width < 200 || newBox.height < 150) {
               return oldBox;
             }
             return newBox;
           }}
-          enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+          enabledAnchors={[
+            'top-left', 'top-center', 'top-right',
+            'middle-left',            'middle-right',
+            'bottom-left', 'bottom-center', 'bottom-right',
+          ]}
+          rotateEnabled={false}
         />
       )}
     </>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Stage, Layer, Rect, Line } from 'react-konva';
+import { Stage, Layer, Rect, Line, Arrow } from 'react-konva';
 import { useBoard } from '../context/BoardContext';
 import StickyNote from './StickyNote';
 import BoardShape from './BoardShape';
@@ -18,6 +18,8 @@ import StickyNoteEditOverlay from './StickyNoteEditOverlay';
 import BoardControlBar from './BoardControlBar';
 import ContextMenu from './ContextMenu';
 import ErrorBoundary from './ErrorBoundary';
+import ConnectionPorts, { getObjectPortPos } from './ConnectionPorts';
+import ConnectorToolbar from './ConnectorToolbar';
 import { showToast } from './Toast';
 
 const MIN_SCALE = 0.001; // Nearly infinite zoom out
@@ -40,6 +42,7 @@ export default function Canvas() {
     clearSelection,
     deleteSelectedObjects,
     deleteObject,
+    updateObject,
     duplicateSelectedObjects,
     copySelectedObjects,
     pasteObjects,
@@ -49,10 +52,12 @@ export default function Canvas() {
     createStickyNote,
     createShape,
     createFrame,
+    createConnector,
     userPermission,
     groupObjects,
     ungroupObjects,
     setSnapToGrid,
+    connectorStyle,
   } = useBoard();
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -64,9 +69,15 @@ export default function Canvas() {
   const [contextMenu, setContextMenu] = useState(null);
   const [clipboard, setClipboard] = useState(null);
   const [showGrid, setShowGrid] = useState(false);
+  const [hoveredObjectId, setHoveredObjectId] = useState(null);
+  const [connectingFrom, setConnectingFrom] = useState(null); // { objectId, portSide }
+  const [tempConnectorEnd, setTempConnectorEnd] = useState(null); // { x, y } world coords
   const lastPointerRef = useRef(null);
   const cursorPosRef = useRef(null);
   const selectionStartRef = useRef(null);
+  // Stable ref to objects so pointer-move handlers don't need objects as dep
+  const canvasObjectsRef = useRef(objects);
+  canvasObjectsRef.current = objects;
 
   const handleResize = useCallback(() => {
     if (!containerRef.current) return;
@@ -190,6 +201,30 @@ export default function Canvas() {
       showToast('Print failed', 'error');
     }
   }, [stageRef]);
+
+  // Connection port handlers
+  const handlePortMouseDown = useCallback((objectId, portSide) => {
+    setConnectingFrom({ objectId, portSide });
+    const obj = canvasObjectsRef.current[objectId];
+    if (obj) setTempConnectorEnd(getObjectPortPos(obj, portSide));
+  }, []);
+
+  const handlePortMouseUp = useCallback((targetObjectId, targetPortSide) => {
+    if (!connectingFrom || connectingFrom.objectId === targetObjectId) {
+      setConnectingFrom(null);
+      setTempConnectorEnd(null);
+      return;
+    }
+    const canEdit = userPermission === 'edit' || userPermission === 'owner';
+    if (canEdit) {
+      const newId = createConnector(connectingFrom.objectId, targetObjectId, connectorStyle, '#64748b', connectingFrom.portSide, targetPortSide);
+      // Auto-select the new connector so the toolbar appears immediately
+      if (newId) setSelectedIds(new Set([newId]));
+      showToast('🔗 Connected!', 'success');
+    }
+    setConnectingFrom(null);
+    setTempConnectorEnd(null);
+  }, [connectingFrom, connectorStyle, createConnector, userPermission, setSelectedIds]);
 
   // Global keyboard handlers for selection operations and zoom
   useEffect(() => {
@@ -396,6 +431,13 @@ export default function Canvas() {
   const handlePointerDown = useCallback(
     (e) => {
       if (e.target === e.target.getStage()) {
+        // Cancel any in-progress connection attempt
+        if (connectingFrom) {
+          setConnectingFrom(null);
+          setTempConnectorEnd(null);
+          return;
+        }
+
         setFollowUserId(null);
         
         // Shift+drag = area selection
@@ -415,7 +457,7 @@ export default function Canvas() {
         }
       }
     },
-    [setFollowUserId, clearSelection]
+    [setFollowUserId, clearSelection, connectingFrom]
   );
 
   // Send cursor position at 16ms intervals (60fps)
@@ -436,10 +478,32 @@ export default function Canvas() {
       const stage = stageRef.current;
       if (!stage) return;
       const pos = stage.getPointerPosition();
+      let boardPoint = null;
       if (pos) {
         const transform = stage.getAbsoluteTransform().copy().invert();
-        const boardPoint = transform.point(pos);
+        boardPoint = transform.point(pos);
         cursorPosRef.current = { x: boardPoint.x, y: boardPoint.y };
+      }
+
+      // Update hover object (for connection ports)
+      if (boardPoint && !isDragging && !isSelecting) {
+        let found = null;
+        const skip = new Set(['connector', 'arrow', 'kanban', 'table', 'code', 'embed']);
+        for (const [objId, obj] of Object.entries(canvasObjectsRef.current)) {
+          if (skip.has(obj.type)) continue;
+          const { x = 0, y = 0, width = 100, height = 100 } = obj;
+          if (boardPoint.x >= x && boardPoint.x <= x + width &&
+              boardPoint.y >= y && boardPoint.y <= y + height) {
+            found = objId;
+            break;
+          }
+        }
+        setHoveredObjectId(found);
+      }
+
+      // Update rubber-band endpoint when drawing a connection
+      if (boardPoint && connectingFrom) {
+        setTempConnectorEnd({ x: boardPoint.x, y: boardPoint.y });
       }
       
       // Area selection
@@ -460,7 +524,7 @@ export default function Canvas() {
         lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
       }
     },
-    [isDragging, stagePos, isSelecting]
+    [isDragging, stagePos, isSelecting, connectingFrom]
   );
 
   const handlePointerUp = useCallback(() => {
@@ -502,7 +566,13 @@ export default function Canvas() {
     
     setIsDragging(false);
     lastPointerRef.current = null;
-  }, [isSelecting, selectionBox, objects]);
+
+    // Cancel any in-progress connection if released on empty canvas
+    if (connectingFrom) {
+      setConnectingFrom(null);
+      setTempConnectorEnd(null);
+    }
+  }, [isSelecting, selectionBox, objects, connectingFrom]);
 
   // When following a user, pan the stage so their cursor stays centered
   useEffect(() => {
@@ -533,6 +603,9 @@ export default function Canvas() {
     });
     
     return Object.entries(allObjects).filter(([, obj]) => {
+      // Connectors have no position of their own — they span between objects, so never cull them
+      if (obj.type === 'connector') return true;
+
       // Arrow objects use x1/y1/x2/y2 instead of x/y/width/height
       let bx, by, bRight, bBottom;
       if (obj.type === 'arrow' && obj.x1 != null) {
@@ -643,10 +716,10 @@ export default function Canvas() {
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerLeave={() => { handlePointerUp(); setHoveredObjectId(null); }}
         onContextMenu={handleContextMenu}
         draggable={false}
-        style={{ cursor: isSelecting ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: connectingFrom ? 'crosshair' : isSelecting ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
       >
         <Layer>
           {/* Grid lines (behind everything) */}
@@ -678,6 +751,61 @@ export default function Canvas() {
           {mindMapNodes.map(([id, obj]) => (
             <MindMapNode key={id} id={id} data={obj} />
           ))}
+
+          {/* Connection ports — shown on hover */}
+          {hoveredObjectId && !connectingFrom && (() => {
+            const obj = objects[hoveredObjectId];
+            if (!obj) return null;
+            const { x = 0, y = 0, width = 100, height = 100 } = obj;
+            return (
+              <ConnectionPorts
+                key={`ports-${hoveredObjectId}`}
+                x={x} y={y}
+                width={width} height={height}
+                onPortMouseDown={(side) => handlePortMouseDown(hoveredObjectId, side)}
+                onPortMouseUp={(side) => handlePortMouseUp(hoveredObjectId, side)}
+                isConnecting={false}
+              />
+            );
+          })()}
+
+          {/* Show target ports on hovered object while connecting */}
+          {connectingFrom && hoveredObjectId && hoveredObjectId !== connectingFrom.objectId && (() => {
+            const obj = objects[hoveredObjectId];
+            if (!obj) return null;
+            const { x = 0, y = 0, width = 100, height = 100 } = obj;
+            return (
+              <ConnectionPorts
+                key={`target-ports-${hoveredObjectId}`}
+                x={x} y={y}
+                width={width} height={height}
+                onPortMouseDown={() => {}}
+                onPortMouseUp={(side) => handlePortMouseUp(hoveredObjectId, side)}
+                isConnecting
+              />
+            );
+          })()}
+
+          {/* Rubber-band preview arrow while connecting */}
+          {connectingFrom && tempConnectorEnd && (() => {
+            const startObj = objects[connectingFrom.objectId];
+            if (!startObj) return null;
+            const start = getObjectPortPos(startObj, connectingFrom.portSide);
+            return (
+              <Arrow
+                points={[start.x, start.y, tempConnectorEnd.x, tempConnectorEnd.y]}
+                stroke="#3B82F6"
+                strokeWidth={2}
+                fill="#3B82F6"
+                dash={[8, 4]}
+                pointerLength={10}
+                pointerWidth={10}
+                listening={false}
+                opacity={0.8}
+              />
+            );
+          })()}
+
           {/* (selection box drawn as DOM div below, outside Konva stage) */}
         </Layer>
       </Stage>
@@ -712,6 +840,36 @@ export default function Canvas() {
           }}
         />
       )}
+
+      {/* Floating toolbar for selected connector */}
+      {(() => {
+        if (selectedIds.size !== 1) return null;
+        const [selId] = selectedIds;
+        const selObj = objects[selId];
+        if (!selObj || selObj.type !== 'connector') return null;
+        const sObj = objects[selObj.startObjectId];
+        const eObj = objects[selObj.endObjectId];
+        if (!sObj || !eObj) return null;
+        // World-space midpoint between the two object centers
+        const wx = ((sObj.x + (sObj.width || 100) / 2) + (eObj.x + (eObj.width || 100) / 2)) / 2;
+        const wy = ((sObj.y + (sObj.height || 100) / 2) + (eObj.y + (eObj.height || 100) / 2)) / 2;
+        // Convert to screen (container-relative) coordinates
+        const screenX = wx * scale + stagePos.x;
+        const screenY = wy * scale + stagePos.y;
+        return (
+          <ConnectorToolbar
+            key={selId}
+            connectorId={selId}
+            data={selObj}
+            screenX={screenX}
+            screenY={screenY}
+            containerWidth={dimensions.width}
+            containerHeight={dimensions.height}
+            onUpdate={(patch) => updateObject(selId, patch)}
+            onDelete={() => { deleteObject(selId); clearSelection(); }}
+          />
+        );
+      })()}
 
       <BoardControlBar
         scale={scale}
