@@ -72,6 +72,7 @@ export default function Canvas() {
   const [hoveredObjectId, setHoveredObjectId] = useState(null);
   const [connectingFrom, setConnectingFrom] = useState(null); // { objectId, portSide }
   const [tempConnectorEnd, setTempConnectorEnd] = useState(null); // { x, y } world coords
+  const hasInitializedViewRef = useRef(false);
   const lastPointerRef = useRef(null);
   const cursorPosRef = useRef(null);
   const selectionStartRef = useRef(null);
@@ -160,18 +161,10 @@ export default function Canvas() {
       maxY = Math.max(maxY, y + height);
     });
     
-    const contentWidth = maxX - minX;
-    const contentHeight = maxY - minY;
-    const padding = 100;
-    
-    // Calculate scale to fit content with padding
-    const scaleX = (dimensions.width - padding * 2) / contentWidth;
-    const scaleY = (dimensions.height - padding * 2) / contentHeight;
-    const newScale = Math.min(scaleX, scaleY, MAX_SCALE);
-    
     // Center the content
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
+    const newScale = 1; // Fit All now means center content at 100%
     
     const newPos = {
       x: dimensions.width / 2 - centerX * newScale,
@@ -180,7 +173,51 @@ export default function Canvas() {
     
     setScale(newScale);
     setStagePos(newPos);
-    showToast(`🔍 Fit ${Object.keys(objects).length} objects`, 'success');
+    showToast(`🔍 Centered ${Object.keys(objects).length} objects (100%)`, 'success');
+  }, [objects, dimensions.width, dimensions.height]);
+
+  // On first load/refresh, center existing board content at 100% instead of showing top-left corner.
+  useEffect(() => {
+    if (hasInitializedViewRef.current) return;
+    if (dimensions.width <= 0 || dimensions.height <= 0) return;
+    const all = Object.values(objects);
+    if (all.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let foundBounds = false;
+
+    all.forEach((obj) => {
+      if (obj.type === 'connector') return;
+      if (obj.type === 'arrow' && obj.x1 != null) {
+        minX = Math.min(minX, obj.x1, obj.x2 ?? obj.x1);
+        minY = Math.min(minY, obj.y1, obj.y2 ?? obj.y1);
+        maxX = Math.max(maxX, obj.x1, obj.x2 ?? obj.x1);
+        maxY = Math.max(maxY, obj.y1, obj.y2 ?? obj.y1);
+        foundBounds = true;
+        return;
+      }
+      const x = obj.x ?? 0;
+      const y = obj.y ?? 0;
+      const w = obj.width ?? 100;
+      const h = obj.height ?? 100;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+      foundBounds = true;
+    });
+
+    if (!foundBounds) return;
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const newScale = 1;
+    setScale(newScale);
+    setStagePos({
+      x: dimensions.width / 2 - centerX * newScale,
+      y: dimensions.height / 2 - centerY * newScale,
+    });
+    hasInitializedViewRef.current = true;
   }, [objects, dimensions.width, dimensions.height]);
 
   const handlePrint = useCallback(() => {
