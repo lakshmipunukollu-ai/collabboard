@@ -14,6 +14,8 @@ export default function RightPanel() {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('rightPanelCollapsed') === 'true'; } catch { return false; }
   });
+  // Red dot on FAB when AI responds while panel is hidden
+  const [hasUnreadAI, setHasUnreadAI] = useState(false);
   // Tracks whether the user manually chose a tab so auto-switching respects their intent
   const userOverrideRef = useRef(false);
 
@@ -42,6 +44,33 @@ export default function RightPanel() {
       try { localStorage.setItem('rightPanelCollapsed', String(next)); } catch {}
       return next;
     });
+  }, []);
+
+  // Open panel AND switch to AI tab — used by the floating FAB
+  const openToAI = useCallback(() => {
+    setCollapsed(false);
+    try { localStorage.setItem('rightPanelCollapsed', 'false'); } catch {}
+    userOverrideRef.current = true;
+    setActiveTab('ai');
+    setHasUnreadAI(false);
+  }, []);
+
+  // Clear unread badge whenever the panel is opened
+  useEffect(() => {
+    if (!collapsed) setHasUnreadAI(false);
+  }, [collapsed]);
+
+  // Listen for a custom event dispatched by AIAssistant when a new response arrives
+  useEffect(() => {
+    const onAIResponse = () => {
+      // Only mark unread when the panel is currently hidden
+      setCollapsed((c) => {
+        if (c) setHasUnreadAI(true);
+        return c;
+      });
+    };
+    window.addEventListener('ai:response', onAIResponse);
+    return () => window.removeEventListener('ai:response', onAIResponse);
   }, []);
 
   // Keyboard shortcut: Ctrl+\ or Cmd+\
@@ -135,6 +164,77 @@ export default function RightPanel() {
       >
         {/* › = panel visible (click to collapse), ‹ = panel hidden (click to expand) */}
         {collapsed ? '‹' : '›'}
+      </div>
+
+      {/* ── Floating AI FAB — visible only when panel is collapsed ── */}
+      {/* Wraps both the button and the "AI" label so they fade together */}
+      <div style={{
+        position: 'fixed',
+        bottom: 24,
+        right: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 6,
+        zIndex: 999,
+        // Fade in after panel finishes sliding out; fade out before/as it slides in
+        opacity: collapsed ? 1 : 0,
+        pointerEvents: collapsed ? 'auto' : 'none',
+        transition: collapsed
+          ? 'opacity 0.2s ease 0.25s'   // 0.25s delay = wait for panel slide to finish
+          : 'opacity 0.15s ease 0s',    // no delay on hide — starts fading immediately
+      }}>
+        {/* Circle FAB button */}
+        <button
+          onClick={openToAI}
+          title="Open AI Assistant"
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.08)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+          style={{
+            width: 52,
+            height: 52,
+            borderRadius: '50%',
+            border: 'none',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 22,
+            animation: 'aiPulse 2s ease-in-out infinite',
+            transition: 'transform 0.15s ease',
+            position: 'relative',  // for the notification dot
+            flexShrink: 0,
+          }}
+        >
+          ✨
+          {/* Red unread notification dot */}
+          {hasUnreadAI && (
+            <span style={{
+              position: 'absolute',
+              top: 2,
+              right: 2,
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: '#ef4444',
+              border: '2px solid #0f172a',
+              boxSizing: 'border-box',
+            }} />
+          )}
+        </button>
+
+        {/* "AI" label below the button */}
+        <span style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: 'rgba(255,255,255,0.7)',
+          letterSpacing: '0.08em',
+          userSelect: 'none',
+          textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+        }}>
+          AI
+        </span>
       </div>
 
       {/* ── Panel — slides off-screen to the right when collapsed ── */}

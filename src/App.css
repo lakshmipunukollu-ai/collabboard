@@ -15,6 +15,13 @@
   to   { opacity: 1; transform: translateX(0); }
 }
 
+/* ─── Floating AI FAB glow pulse ─────────────────────────────────────────── */
+@keyframes aiPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(139, 92, 246, 0.55), 0 4px 20px rgba(0,0,0,0.45); }
+  70%  { box-shadow: 0 0 0 10px rgba(139, 92, 246, 0),   0 4px 20px rgba(0,0,0,0.45); }
+  100% { box-shadow: 0 0 0 0   rgba(139, 92, 246, 0),   0 4px 20px rgba(0,0,0,0.45); }
+}
+
 /* ─── Connector tip fade-in / fade-out ────────────────────────────────────── */
 @keyframes fadeInOut {
   0%   { opacity: 0; transform: translateX(-50%) translateY(-4px); }

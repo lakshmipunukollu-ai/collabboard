@@ -797,6 +797,8 @@ export default function AIAssistant({ embedded = false }) {
       const assistantMessage = { role: 'assistant', content };
       setMessages(prev => [...prev, assistantMessage]);
       saveMessageToFirebase(assistantMessage);
+      // Notify RightPanel so it can show the unread dot when panel is collapsed
+      window.dispatchEvent(new CustomEvent('ai:response'));
 
       if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
         // Execute immediately so the user sees the result on canvas
