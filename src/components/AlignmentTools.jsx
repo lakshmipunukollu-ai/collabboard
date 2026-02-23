@@ -112,66 +112,57 @@ export default function AlignmentTools() {
     <div
       style={{
         position: 'fixed',
-        top: '50%',
-        right: 20,
-        transform: 'translateY(-50%)',
-        background: 'rgba(15, 23, 42, 0.95)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 12,
-        padding: 12,
+        top: 16,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(15, 23, 42, 0.97)',
+        border: '1px solid rgba(99, 130, 246, 0.35)',
+        borderRadius: 10,
+        padding: '6px 10px',
         display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        zIndex: 1000,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        alignItems: 'center',
+        gap: 4,
+        zIndex: 900,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+        userSelect: 'none',
+        whiteSpace: 'nowrap',
       }}
     >
-      <div style={{
-        color: '#94A3B8',
-        fontSize: '0.75rem',
+      {/* Label */}
+      <span style={{
+        color: '#64748b',
+        fontSize: '0.7rem',
         fontWeight: 600,
-        paddingBottom: 8,
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        letterSpacing: '0.05em',
+        paddingRight: 6,
+        borderRight: '1px solid rgba(255,255,255,0.08)',
+        marginRight: 2,
       }}>
-        ALIGN ({selectedObjects.length})
-      </div>
-      
-      <div style={{ display: 'flex', gap: 4 }}>
-        <button onClick={alignLeft} style={buttonStyle} title="Align left">
-          ←|
-        </button>
-        <button onClick={alignCenterH} style={buttonStyle} title="Align center (horizontal)">
-          |↔|
-        </button>
-        <button onClick={alignRight} style={buttonStyle} title="Align right">
-          |→
-        </button>
-      </div>
-      
-      <div style={{ display: 'flex', gap: 4 }}>
-        <button onClick={alignTop} style={buttonStyle} title="Align top">
-          ↑―
-        </button>
-        <button onClick={alignCenterV} style={buttonStyle} title="Align center (vertical)">
-          ↕
-        </button>
-        <button onClick={alignBottom} style={buttonStyle} title="Align bottom">
-          ―↓
-        </button>
-      </div>
+        ALIGN {selectedObjects.length}
+      </span>
 
+      {/* Horizontal align group */}
+      <button onClick={alignLeft} style={btnStyle} title="Align left edges">←|</button>
+      <button onClick={alignCenterH} style={btnStyle} title="Center horizontally">|↔|</button>
+      <button onClick={alignRight} style={btnStyle} title="Align right edges">|→</button>
+
+      {/* Divider */}
+      <span style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />
+
+      {/* Vertical align group */}
+      <button onClick={alignTop} style={btnStyle} title="Align top edges">↑—</button>
+      <button onClick={alignCenterV} style={btnStyle} title="Center vertically">↕</button>
+      <button onClick={alignBottom} style={btnStyle} title="Align bottom edges">—↓</button>
+
+      {/* Distribute group (only when 3+ selected) */}
       {selectedObjects.length >= 3 && (
         <>
-          <div style={{
-            height: 1,
-            background: 'rgba(255,255,255,0.05)',
-            margin: '4px 0',
-          }} />
-          <button onClick={distributeH} style={buttonStyleWide} title="Distribute horizontally">
-            ↔ Distribute H
+          <span style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />
+          <button onClick={distributeH} style={btnStyle} title="Distribute horizontally">
+            ↔ H
           </button>
-          <button onClick={distributeV} style={buttonStyleWide} title="Distribute vertically">
-            ↕ Distribute V
+          <button onClick={distributeV} style={btnStyle} title="Distribute vertically">
+            ↕ V
           </button>
         </>
       )}
@@ -179,21 +170,15 @@ export default function AlignmentTools() {
   );
 }
 
-const buttonStyle = {
-  padding: '8px',
-  background: 'rgba(59, 130, 246, 0.1)',
-  border: '1px solid rgba(59, 130, 246, 0.3)',
+const btnStyle = {
+  padding: '5px 8px',
+  background: 'rgba(59, 130, 246, 0.08)',
+  border: '1px solid rgba(59, 130, 246, 0.25)',
   borderRadius: 6,
   color: '#93C5FD',
-  fontSize: '0.875rem',
+  fontSize: '0.8rem',
   fontWeight: 600,
   cursor: 'pointer',
-  transition: 'all 0.2s',
-  flex: 1,
-  minWidth: 40,
-};
-
-const buttonStyleWide = {
-  ...buttonStyle,
-  width: '100%',
+  transition: 'background 0.15s',
+  lineHeight: 1,
 };

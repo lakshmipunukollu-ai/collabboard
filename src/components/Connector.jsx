@@ -44,12 +44,19 @@ export default function Connector({ id, data }) {
   const {
     startObjectId,
     endObjectId,
-    color = '#64748b',
+    color = '#4A90D9',
     strokeWidth = 2,
     arrowStyle = 'straight',
+    arrowHead = 'end',
+    strokeDash = 'solid',
     label = '',
     labelColor = '#e2e8f0',
+    startPort = null,
+    endPort = null,
   } = data;
+
+  // Resolve Konva dash array from strokeDash setting
+  const dashArray = strokeDash === 'dashed' ? [10, 5] : strokeDash === 'dotted' ? [3, 5] : undefined;
 
   const startObj = objects[startObjectId];
   const endObj = objects[endObjectId];
@@ -57,9 +64,12 @@ export default function Connector({ id, data }) {
   const points = useMemo(() => {
     if (!startObj || !endObj) return null;
 
-    const { startPort, endPort } = getBestPorts(startObj, endObj);
-    const { x: startX, y: startY } = getPortPos(startObj, startPort);
-    const { x: endX, y: endY } = getPortPos(endObj, endPort);
+    // Use explicitly-stored ports when the user chose them; fall back to auto-detect.
+    const resolved = (startPort && endPort)
+      ? { startPort, endPort }
+      : getBestPorts(startObj, endObj);
+    const { x: startX, y: startY } = getPortPos(startObj, resolved.startPort);
+    const { x: endX, y: endY } = getPortPos(endObj, resolved.endPort);
 
     if (arrowStyle === 'curved') {
       const midX = (startX + endX) / 2;
@@ -80,24 +90,30 @@ export default function Connector({ id, data }) {
   const midX = (points[0] + points[points.length - 2]) / 2;
   const midY = (points[1] + points[points.length - 1]) / 2;
 
-  const showArrowhead = arrowStyle !== 'line';
-
   const handleClick = (e) => {
     e.cancelBubble = true;
     toggleSelection(id, e.evt.shiftKey);
   };
 
+  // Resolve arrowhead visibility from arrowHead field
+  const showEnd = arrowHead !== 'none';
+  const showStart = arrowHead === 'both';
+  const activeColor = isSelected ? '#3B82F6' : color;
+
   return (
     <Group>
       <Arrow
         points={points}
-        stroke={isSelected ? '#3B82F6' : color}
+        stroke={activeColor}
         strokeWidth={isSelected ? strokeWidth + 2 : strokeWidth}
-        fill={isSelected ? '#3B82F6' : color}
-        pointerLength={showArrowhead ? 10 : 0}
-        pointerWidth={showArrowhead ? 10 : 0}
+        fill={activeColor}
+        pointerLength={showEnd ? 10 : 0}
+        pointerWidth={showEnd ? 10 : 0}
+        pointerAtBeginning={showStart}
+        pointerAtEnding={showEnd}
         tension={arrowStyle === 'curved' ? 0.5 : 0}
         bezier={arrowStyle === 'curved'}
+        dash={dashArray}
         onClick={handleClick}
         onTap={handleClick}
         hitStrokeWidth={12}

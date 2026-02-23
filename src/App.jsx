@@ -14,10 +14,10 @@ import Toast from './components/Toast';
 import HelpPanel from './components/HelpPanel';
 import AutoSaveIndicator from './components/AutoSaveIndicator';
 import EnhancedPresence from './components/EnhancedPresence';
-import PropertiesPanel from './components/PropertiesPanel';
 import AlignmentTools from './components/AlignmentTools';
-import AIAssistant from './components/AIAssistant';
+import RightPanel from './components/RightPanel';
 import NotificationBell from './components/NotificationBell';
+import ActivityFeed from './components/ActivityFeed';
 import './App.css';
 
 // ─── Editable board title ─────────────────────────────────────────────────
@@ -79,10 +79,7 @@ function BoardLayout({ boardId, onBackToList }) {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [hasAccess, setHasAccess] = useState(null);
   const [userPermission, setUserPermission] = useState('view');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try { return localStorage.getItem('sidebar-collapsed') === 'true'; }
-    catch { return false; }
-  });
+  const [sidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     try { return localStorage.getItem('theme') !== 'light'; }
     catch { return true; }
@@ -262,12 +259,12 @@ function BoardLayout({ boardId, onBackToList }) {
         </aside>
         <main className="canvas-wrapper">
           <Canvas />
-          <PropertiesPanel />
         </main>
       </div>
 
       <AlignmentTools />
-      <AIAssistant />
+      <RightPanel />
+      <ActivityFeed />
     </div>
   );
 }

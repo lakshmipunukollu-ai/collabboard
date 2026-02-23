@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useBoard } from '../context/BoardContext';
 
 function sanitizeUrl(url) {
   if (!url) return '';
-  // Allow only http/https
   if (!/^https?:\/\//i.test(url)) return '';
   return url;
 }
 
 export default function EmbedObject({ id, data, scale, stagePos }) {
-  const { updateObject, deleteObject, selectedIds, toggleSelection } = useBoard();
+  const {
+    updateObject, deleteObject, selectedIds, toggleSelection,
+    moveObjectGroupLocal, moveObjectGroup, beginMoveUndo, resizeObject,
+  } = useBoard();
   const [editing, setEditing] = useState(!data.url);
   const [draft, setDraft] = useState(data.url || '');
 
@@ -25,6 +27,53 @@ export default function EmbedObject({ id, data, scale, stagePos }) {
   const screenH = height * scale;
   const safeUrl = sanitizeUrl(url);
 
+  // ── Drag to move ──────────────────────────────────────────────────────────
+  const handleToolbarMouseDown = useCallback((e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    beginMoveUndo(id);
+    const startX = e.clientX, startY = e.clientY;
+    const startWX = x, startWY = y, s = scale;
+    let moved = false;
+    const onMove = (me) => {
+      const dx = me.clientX - startX, dy = me.clientY - startY;
+      if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      moved = true;
+      moveObjectGroupLocal(id, startWX + dx / s, startWY + dy / s);
+    };
+    const onUp = (me) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (!moved) return;
+      const dx = me.clientX - startX, dy = me.clientY - startY;
+      moveObjectGroup(id, startWX + dx / s, startWY + dy / s);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [id, x, y, scale, beginMoveUndo, moveObjectGroupLocal, moveObjectGroup]);
+
+  // ── Resize from bottom-right corner ──────────────────────────────────────
+  const handleResizeMouseDown = useCallback((e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const startW = width, startH = height, s = scale;
+    const onMove = (me) => {
+      const nw = Math.max(200, startW + (me.clientX - startX) / s);
+      const nh = Math.max(150, startH + (me.clientY - startY) / s);
+      updateObject(id, { width: nw, height: nh });
+    };
+    const onUp = (me) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const nw = Math.max(200, startW + (me.clientX - startX) / s);
+      const nh = Math.max(150, startH + (me.clientY - startY) / s);
+      resizeObject(id, x, y, nw, nh);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [id, x, y, width, height, scale, updateObject, resizeObject]);
+
   const commit = () => {
     const safe = sanitizeUrl(draft.trim());
     if (safe) updateObject(id, { url: safe });
@@ -39,18 +88,30 @@ export default function EmbedObject({ id, data, scale, stagePos }) {
         width: screenW, height: screenH,
         border: isSelected ? '2px solid #667eea' : '1px solid #334155',
         borderRadius: 8, background: '#0f172a',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        boxShadow: isSelected ? '0 4px 24px rgba(102,126,234,0.3)' : '0 4px 16px rgba(0,0,0,0.4)',
         zIndex: 20, overflow: 'hidden', pointerEvents: 'all',
         display: 'flex', flexDirection: 'column',
       }}
       onClick={(e) => { e.stopPropagation(); toggleSelection(id, e.shiftKey); }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!selectedIds.has(id)) toggleSelection(id, false);
+        window.dispatchEvent(new CustomEvent('richobject:contextmenu', {
+          detail: { objectId: id, screenX: e.clientX, screenY: e.clientY },
+        }));
+      }}
     >
       <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width, height, display: 'flex', flexDirection: 'column' }}>
-        {/* Toolbar */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '5px 8px', background: '#1e293b', borderBottom: '1px solid #334155',
-        }}>
+        {/* Toolbar — drag handle */}
+        <div
+          onMouseDown={handleToolbarMouseDown}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '5px 8px', background: '#1e293b', borderBottom: '1px solid #334155',
+            cursor: 'grab', userSelect: 'none',
+          }}
+        >
           <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>🔗 Embed</span>
           <div style={{ flex: 1, overflow: 'hidden' }}>
             {editing ? (
@@ -88,6 +149,7 @@ export default function EmbedObject({ id, data, scale, stagePos }) {
             </button>
           )}
           <button onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete embed?')) deleteObject(id); }}
+            onMouseDown={(e) => e.stopPropagation()}
             style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 13 }}>×</button>
         </div>
 
@@ -111,6 +173,18 @@ export default function EmbedObject({ id, data, scale, stagePos }) {
           </div>
         )}
       </div>
+      {/* Resize handle — bottom-right corner */}
+      {isSelected && (
+        <div
+          onMouseDown={handleResizeMouseDown}
+          style={{
+            position: 'absolute', bottom: 3, right: 3,
+            width: 12, height: 12, borderRadius: '50%',
+            background: '#667eea', cursor: 'se-resize', zIndex: 30,
+            boxShadow: '0 0 0 2px rgba(255,255,255,0.6)',
+          }}
+        />
+      )}
     </div>
   );
 }

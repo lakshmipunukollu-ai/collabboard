@@ -4,11 +4,13 @@ import { useBoard } from '../context/BoardContext';
 export default function HistoryPanel({ collapsed }) {
   const { history, objects } = useBoard();
   const [isOpen, setIsOpen] = useState(false);
-  const [filter, setFilter] = useState('all'); // 'all', 'created', 'deleted', 'updated'
+  const [filter, setFilter] = useState('all'); // 'all', 'created', 'deleted', 'updated', 'moved'
 
   const filteredHistory = filter === 'all' 
     ? history 
-    : history.filter(entry => entry.action === filter);
+    : filter === 'updated'
+      ? history.filter(entry => entry.action === 'updated' || entry.action === 'moved')
+      : history.filter(entry => entry.action === filter);
 
   const getActionIcon = (action) => {
     switch (action) {

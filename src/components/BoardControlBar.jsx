@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import { useBoard } from '../context/BoardContext';
 import { showToast } from './Toast';
 
@@ -64,6 +64,25 @@ export default function BoardControlBar({
   }
 
   const zoomPercent = Math.round(scale * 100);
+  const [editingZoom, setEditingZoom] = useState(false);
+  const [zoomDraft, setZoomDraft] = useState('');
+  const zoomInputRef = useRef(null);
+
+  const startZoomEdit = () => {
+    setZoomDraft(String(zoomPercent));
+    setEditingZoom(true);
+    // focus after render
+    setTimeout(() => zoomInputRef.current?.select(), 0);
+  };
+
+  const commitZoomEdit = () => {
+    const parsed = parseInt(zoomDraft, 10);
+    if (!isNaN(parsed)) {
+      const clamped = Math.min(400, Math.max(1, parsed));
+      onZoomChange(clamped / 100);
+    }
+    setEditingZoom(false);
+  };
 
   const handleDownload = useCallback(() => {
     const stage = stageRef?.current;
@@ -126,9 +145,55 @@ export default function BoardControlBar({
       >
         +
       </button>
-      <div style={{ color: '#94A3B8', fontSize: '0.75rem', fontWeight: 600, minWidth: 36, textAlign: 'center' }}>
-        {zoomPercent}%
-      </div>
+      {editingZoom ? (
+        <input
+          ref={zoomInputRef}
+          type="number"
+          min={1}
+          max={400}
+          value={zoomDraft}
+          onChange={(e) => setZoomDraft(e.target.value)}
+          onBlur={commitZoomEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitZoomEdit(); }
+            if (e.key === 'Escape') setEditingZoom(false);
+            e.stopPropagation();
+          }}
+          style={{
+            width: 52,
+            padding: '2px 4px',
+            background: '#0f172a',
+            border: '1px solid #3b82f6',
+            borderRadius: 4,
+            color: '#e2e8f0',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            textAlign: 'center',
+            outline: 'none',
+          }}
+        />
+      ) : (
+        <div
+          onClick={startZoomEdit}
+          title="Click to enter a specific zoom %"
+          style={{
+            color: '#94A3B8',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            minWidth: 36,
+            textAlign: 'center',
+            cursor: 'text',
+            padding: '2px 4px',
+            borderRadius: 4,
+            border: '1px solid transparent',
+            transition: 'border-color 0.15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(59,130,246,0.4)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
+        >
+          {zoomPercent}%
+        </div>
+      )}
       <button onClick={onFitAll} title="Fit all (Press 0)" style={buttonStyle}>
         Fit All
       </button>

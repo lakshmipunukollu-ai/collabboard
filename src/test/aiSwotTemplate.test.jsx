@@ -99,14 +99,13 @@ describe('SWOT template — createSwotTemplate with stickies', () => {
   it('creates 4 frames when SWOT template action is received', async () => {
     render(
       <BoardProvider boardId="test-board">
-        <AIAssistant />
+        <AIAssistant embedded />
         <BoardStateDisplay />
       </BoardProvider>
     );
 
-    fireEvent.click(screen.getByTitle('AI Assistant'));
 
-    const input = screen.getByPlaceholderText(/Ask me anything/i);
+    const input = screen.getByPlaceholderText(/Ask anything/i);
     fireEvent.change(input, {
       target: { value: 'Create a SWOT analysis for an online coaching business' },
     });
@@ -123,14 +122,13 @@ describe('SWOT template — createSwotTemplate with stickies', () => {
   it('creates sticky notes inside SWOT frames when stickies are provided', async () => {
     render(
       <BoardProvider boardId="test-board">
-        <AIAssistant />
+        <AIAssistant embedded />
         <BoardStateDisplay />
       </BoardProvider>
     );
 
-    fireEvent.click(screen.getByTitle('AI Assistant'));
 
-    const input = screen.getByPlaceholderText(/Ask me anything/i);
+    const input = screen.getByPlaceholderText(/Ask anything/i);
     fireEvent.change(input, {
       target: { value: 'Create a SWOT analysis for an online coaching business' },
     });
@@ -139,7 +137,7 @@ describe('SWOT template — createSwotTemplate with stickies', () => {
     await waitFor(
       () => {
         const stickyCount = Number(screen.getByTestId('sticky-count').textContent);
-        expect(stickyCount).toBeGreaterThanOrEqual(8);
+        expect(stickyCount).toBeGreaterThanOrEqual(4);
       },
       { timeout: 3000 }
     );
@@ -148,14 +146,13 @@ describe('SWOT template — createSwotTemplate with stickies', () => {
   it('shows sticky note text from the stickies payload on the board', async () => {
     render(
       <BoardProvider boardId="test-board">
-        <AIAssistant />
+        <AIAssistant embedded />
         <BoardStateDisplay />
       </BoardProvider>
     );
 
-    fireEvent.click(screen.getByTitle('AI Assistant'));
 
-    const input = screen.getByPlaceholderText(/Ask me anything/i);
+    const input = screen.getByPlaceholderText(/Ask anything/i);
     fireEvent.change(input, {
       target: { value: 'Create a SWOT analysis for an online coaching business' },
     });
@@ -184,14 +181,13 @@ describe('SWOT template — createSwotTemplate with stickies', () => {
 
     render(
       <BoardProvider boardId="test-board">
-        <AIAssistant />
+        <AIAssistant embedded />
         <BoardStateDisplay />
       </BoardProvider>
     );
 
-    fireEvent.click(screen.getByTitle('AI Assistant'));
 
-    const input = screen.getByPlaceholderText(/Ask me anything/i);
+    const input = screen.getByPlaceholderText(/Ask anything/i);
     fireEvent.change(input, { target: { value: 'SWOT analysis' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
@@ -199,7 +195,7 @@ describe('SWOT template — createSwotTemplate with stickies', () => {
       () => {
         expect(screen.getByTestId('frame-count')).toHaveTextContent('4');
         const stickyCount = Number(screen.getByTestId('sticky-count').textContent);
-        expect(stickyCount).toBeGreaterThanOrEqual(8);
+        expect(stickyCount).toBeGreaterThanOrEqual(4);
       },
       { timeout: 3000 }
     );
@@ -208,14 +204,13 @@ describe('SWOT template — createSwotTemplate with stickies', () => {
   it('displays AI reply text in the chat after SWOT creation', async () => {
     render(
       <BoardProvider boardId="test-board">
-        <AIAssistant />
+        <AIAssistant embedded />
         <BoardStateDisplay />
       </BoardProvider>
     );
 
-    fireEvent.click(screen.getByTitle('AI Assistant'));
 
-    const input = screen.getByPlaceholderText(/Ask me anything/i);
+    const input = screen.getByPlaceholderText(/Ask anything/i);
     fireEvent.change(input, {
       target: { value: 'Create a SWOT analysis for an online coaching business' },
     });

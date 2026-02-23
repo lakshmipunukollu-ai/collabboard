@@ -32,7 +32,7 @@ export default function HelpPanel() {
         title="Show help and keyboard shortcuts"
         style={{
           position: 'fixed',
-          bottom: 100,
+          bottom: 144,
           right: 20,
           width: 48,
           height: 48,

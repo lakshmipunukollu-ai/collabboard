@@ -5,8 +5,9 @@ import { useBoard } from '../context/BoardContext';
 export default function TextBox({ id, data }) {
   const {
     moveObjectLocal,
+    moveObjectGroupLocal,
     moveObject, moveObjectGroup, deleteObject, resizeObject, updateObject,
-    selectedIds, toggleSelection, startEditing, stopEditing,
+    selectedIds, toggleSelection, startEditing, stopEditing, beginMoveUndo,
   } = useBoard();
 
   const {
@@ -41,15 +42,12 @@ export default function TextBox({ id, data }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [isSelected, id, deleteObject]);
 
-  const handleDragStart = () => { setIsDragging(true); startEditing(id); };
+  const handleDragStart = () => { setIsDragging(true); startEditing(id); beginMoveUndo(id); };
   const handleDragMove = (e) => {
-    moveObjectLocal(id, e.target.x(), e.target.y());
-    if (!dragThrottleRef.current) {
-      dragThrottleRef.current = setTimeout(() => {
-        moveObject(id, e.target.x(), e.target.y());
-        dragThrottleRef.current = null;
-      }, 50);
-    }
+    const newX = e.target.x();
+    const newY = e.target.y();
+    // Local-only update during drag — Firebase write happens on dragEnd as a batch
+    moveObjectGroupLocal(id, newX, newY);
   };
   const handleDragEnd = (e) => {
     clearTimeout(dragThrottleRef.current);

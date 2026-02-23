@@ -7,6 +7,7 @@ import { showToast } from './Toast';
 export default function BoardShape({ id, data }) {
   const { 
     moveObjectLocal,
+    moveObjectGroupLocal,
     moveObject,
     moveObjectGroup,
     deleteObject, 
@@ -18,6 +19,7 @@ export default function BoardShape({ id, data }) {
     startEditing,
     stopEditing,
     presence,
+    beginMoveUndo,
   } = useBoard();
   const { user } = useUser();
   const [isDragging, setIsDragging] = useState(false);
@@ -40,6 +42,8 @@ export default function BoardShape({ id, data }) {
     color = '#6366F1',
     opacity = 0.9,
     rotation = 0,
+    strokeWidth: lineStrokeWidth = 4,
+    lineDash = 'solid',
   } = data;
 
   // Attach transformer to this group when selected
@@ -71,21 +75,15 @@ export default function BoardShape({ id, data }) {
     }
     setIsDragging(true);
     startEditing(id);
+    beginMoveUndo(id);
   };
 
   const handleDragMove = (e) => {
     const newX = e.target.x();
     const newY = e.target.y();
     lastDragPosRef.current = { x: newX, y: newY };
-    moveObjectLocal(id, newX, newY);
-    
-    // Throttle Firebase writes to every 50ms during drag
-    if (!dragThrottleRef.current) {
-      dragThrottleRef.current = setTimeout(() => {
-        moveObject(id, lastDragPosRef.current.x, lastDragPosRef.current.y);
-        dragThrottleRef.current = null;
-      }, 50);
-    }
+    // Local-only update during drag — Firebase write happens on dragEnd as a batch
+    moveObjectGroupLocal(id, newX, newY);
   };
 
   const handleDragEnd = (e) => {
@@ -192,19 +190,24 @@ export default function BoardShape({ id, data }) {
             opacity={opacity}
           />
         );
-      case 'line':
+      case 'line': {
+        const lineDashArray =
+          lineDash === 'dashed' ? [lineStrokeWidth * 4, lineStrokeWidth * 2] :
+          lineDash === 'dotted' ? [lineStrokeWidth, lineStrokeWidth * 3] :
+          undefined;
         return (
           <Line
             points={[0, height / 2, width, height / 2]}
-            stroke={isBeingEditedByOther ? '#F59E0B' : isSelected ? "#3B82F6" : color}
-            strokeWidth={isBeingEditedByOther ? 5 : isSelected ? 6 : 4}
-            dash={isBeingEditedByOther ? [10, 5] : undefined}
+            stroke={isBeingEditedByOther ? '#F59E0B' : isSelected ? '#3B82F6' : color}
+            strokeWidth={isBeingEditedByOther ? lineStrokeWidth + 2 : lineStrokeWidth}
+            dash={isBeingEditedByOther ? [10, 5] : lineDashArray}
             lineCap="round"
             lineJoin="round"
-            shadowColor={isSelected ? "rgba(59, 130, 246, 0.6)" : "rgba(0,0,0,0.2)"}
-            shadowBlur={isSelected ? 15 : 5}
+            shadowColor={isSelected ? 'rgba(59,130,246,0.7)' : 'rgba(0,0,0,0.2)'}
+            shadowBlur={isSelected ? 18 : 5}
           />
         );
+      }
       case 'rectangle':
       default:
         return (

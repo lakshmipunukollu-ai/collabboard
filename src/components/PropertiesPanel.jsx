@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useBoard } from '../context/BoardContext';
 
-export default function PropertiesPanel() {
+export default function PropertiesPanel({ embedded = false }) {
   const { objects, selectedIds, updateObject, deleteSelectedObjects } = useBoard();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -14,7 +14,7 @@ export default function PropertiesPanel() {
     setIsOpen(selectedObjects.length > 0);
   }, [selectedObjects.length]);
 
-  if (selectedObjects.length === 0 || !isOpen) return null;
+  if (!embedded && (selectedObjects.length === 0 || !isOpen)) return null;
 
   const isSingleSelect = selectedObjects.length === 1;
   const obj = selectedObjects[0];
@@ -51,7 +51,12 @@ export default function PropertiesPanel() {
 
   return (
     <div
-      style={{
+      style={embedded ? {
+        // Fill the parent tab container — no fixed positioning
+        padding: 16,
+        overflowY: 'auto',
+        flex: 1,
+      } : {
         position: 'fixed',
         top: 60,
         right: 20,
@@ -75,21 +80,23 @@ export default function PropertiesPanel() {
         <h3 style={{ color: '#E2E8F0', margin: 0, fontSize: '1rem' }}>
           {isSingleSelect ? 'Properties' : `${selectedObjects.length} Objects`}
         </h3>
-        <button
-          onClick={() => setIsOpen(false)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#94A3B8',
-            fontSize: '1.25rem',
-            cursor: 'pointer',
-            padding: 0,
-            lineHeight: 1,
-          }}
-          title="Close properties panel (Esc)"
-        >
-          ×
-        </button>
+        {!embedded && (
+          <button
+            onClick={() => setIsOpen(false)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94A3B8',
+              fontSize: '1.25rem',
+              cursor: 'pointer',
+              padding: 0,
+              lineHeight: 1,
+            }}
+            title="Close properties panel (Esc)"
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {/* Position (single select only) */}

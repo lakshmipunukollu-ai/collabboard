@@ -241,10 +241,14 @@ function buildTools(actions) {
     tool({
       name: 'createSwotTemplate',
       description:
-        'Create a SWOT analysis with four labelled quadrants. ' +
-        'RULE: whenever the user names a topic, you MUST pass stickies with 2–4 short ' +
-        'topic-specific items per quadrant — the board will be completely blank without them.',
+        'Create a SWOT analysis with four labelled, color-coded quadrants. ' +
+        'RULE: whenever the user names a topic, you MUST pass stickies with 4–6 detailed, ' +
+        'topic-specific bullet points per quadrant — the board will be completely blank without them. ' +
+        'Each bullet point should be a full sentence or detailed phrase specific to the topic, NOT a generic one-liner. ' +
+        'Always pass the topic name so the frame is labelled correctly.',
       parameters: z.object({
+        topic: z.string().nullish()
+          .describe('The topic or subject being analysed, e.g. "Coffee Shop", "Tesla Model 3". Used to title the frame.'),
         stickies: z
           .object({
             strengths: z.array(z.string()),
@@ -253,7 +257,7 @@ function buildTools(actions) {
             threats: z.array(z.string()),
           })
           .nullish()
-          .describe('Pre-filled content. Required when user specifies a topic.'),
+          .describe('Pre-filled content with 4–6 detailed items per quadrant. Required when user specifies a topic.'),
       }),
       execute: async (args) => {
         const stickies = args.stickies
@@ -264,8 +268,8 @@ function buildTools(actions) {
               threats: args.stickies.threats.slice(0, 6).map(String),
             }
           : null;
-        actions.push({ type: 'createSwotTemplate', stickies });
-        return 'SWOT template created with four quadrants.';
+        actions.push({ type: 'createSwotTemplate', stickies, topic: args.topic ?? undefined });
+        return 'SWOT template created with four color-coded quadrants.';
       },
     }),
 
@@ -379,16 +383,20 @@ function buildSystemContent(boardState) {
       ? `\n\nCurrent board state (use these IDs for move/resize/updateText/changeColor/createConnector):\n${JSON.stringify(boardState).slice(0, 8000)}`
       : '\n\nThe board is currently empty. Create new objects freely.';
 
-  return `You are a helpful assistant for CollabBoard, a collaborative whiteboard app. \
-You can create, move, resize, recolor, arrange, and delete objects using the provided tools.
+  return `You are a warm, enthusiastic, and knowledgeable collaborative whiteboard assistant for CollabBoard. \
+You treat every user as a creative collaborator whose project genuinely matters. \
+You can create, move, resize, recolor, arrange, and delete board objects using the provided tools.
 
 CRITICAL RULES:
 1. When the user asks to add or create anything, call the correct tool immediately — never \
 describe what you would do without calling the tool.
-2. SWOT with a topic: call createSwotTemplate and pass stickies with 2–4 short \
-topic-specific items per quadrant. Example for "online coaching": \
-strengths:["Expert content","Scalable model"], weaknesses:["High competition","Tech costs"], \
-opportunities:["Growing remote demand","Subscriptions"], threats:["Free rivals","Platform risk"].
+2. SWOT with a topic: call createSwotTemplate and pass BOTH the topic field AND stickies with 4–6 detailed, \
+topic-specific items per quadrant. Each item should be a substantive phrase, NOT a generic one-liner. \
+Example for "online coaching": \
+strengths:["Deep subject-matter expertise in a niche","Low overhead compared to in-person teaching","Content can be packaged and sold asynchronously","Strong personal brand potential through social media","Flexible scheduling attracts global audience"], \
+weaknesses:["High initial investment in equipment and platform fees","Difficult to stand out in a saturated market","Revenue is unpredictable before a stable subscriber base","Technical issues can disrupt live sessions and harm reputation"], \
+opportunities:["Growing demand for remote upskilling post-pandemic","Subscription bundles provide recurring revenue streams","Partnerships with corporate L&D departments","Expanding into mobile-first markets in emerging economies"], \
+threats:["Free YouTube and podcast competitors undercut pricing","Platform algorithm changes can kill discoverability overnight","Economic downturns reduce consumer spending on education","AI-generated course content may commoditize expertise"].
 3. Multi-step requests: call all needed tools in one turn. Example — "add 3 notes then \
 arrange in a row": call createStickyNote three times, then spaceEvenly(objectIds:[]). \
 When the user asks to create a frame AND put content inside it, ALWAYS use createFrameWithNotes — \
@@ -402,7 +410,23 @@ NEVER invent or guess IDs for objects you are creating in this same turn. \
 do NOT call createConnector for those notes.
 6. For manipulation (move/resize/color/text/connect/delete), use exact IDs from board state.
 7. You can delete individual objects with deleteObject(objectId) or clear everything with clearBoard().
-8. After calling tools, reply with one short sentence confirming what was done.${boardStateBlurb}`;
+8. VAGUE REQUESTS — if the user's request is unclear or missing a topic (e.g. "make a kanban", \
+"brainstorm ideas", "create a SWOT" with no subject), ask ONE focused clarifying question \
+before calling any tools. Keep it short and friendly. Example: "Sure! What project or workflow \
+is this Kanban for? The more specific you are, the more useful I can make it." Never ask \
+more than one question at a time.
+9. RESPONSE QUALITY — after calling tools, write a detailed and enthusiastic response that: \
+(a) Summarises what was created and explains why each element was included. \
+(b) Highlights 2-3 specific things the user should notice (e.g. colour coding, connections). \
+(c) Suggests 2-3 concrete next steps ("You might add deadlines to each Kanban card" or \
+"Consider connecting the flowchart nodes with arrows"). \
+(d) Ends with an open invitation to refine ("Let me know if you'd like to adjust anything — \
+I can add more detail, change the layout, or expand any section"). \
+Never reply with just one sentence. Minimum 3-4 sentences always.
+10. CONVERSATIONAL QUESTIONS — if the user asks a question without requesting content generation \
+(e.g. "what is a SWOT?", "how should I structure my presentation?"), give a thorough, \
+well-structured answer with at least 3–5 sentences, concrete examples, and actionable advice. \
+Never give a one-liner answer to a genuine question.${boardStateBlurb}`;
 }
 
 // ─── Action post-processing helpers ──────────────────────────────────────────
@@ -457,24 +481,24 @@ function applyGridFallback(actions, lastContent) {
 }
 
 const REPLY_MAP = {
-  createSwotTemplate: 'SWOT analysis added to your board.',
-  createStickyNote: 'Sticky note added.',
-  createShape: 'Shape added.',
-  createFrame: 'Frame added.',
-  createUserJourney: 'User journey created.',
-  createRetrospectiveBoard: 'Retrospective board created.',
-  createStickyNoteGrid: 'Sticky note grid created.',
-  moveObject: 'Object moved.',
-  resizeObject: 'Object resized.',
-  updateText: 'Text updated.',
-  changeColor: 'Color updated.',
-  createConnector: 'Connector added.',
-  arrangeInGrid: 'Objects arranged in grid.',
-  spaceEvenly: 'Objects spaced evenly.',
-  deleteObject: 'Object deleted.',
-  clearBoard: 'Board cleared.',
-  createFrameWithNotes: 'Frame with notes created.',
-  addFlowchart: 'Flowchart added to the board.',
+  createSwotTemplate: "Your SWOT analysis is ready! I've color-coded each quadrant — strengths in green, weaknesses in pink, opportunities in blue, and threats in yellow — so it's easy to scan at a glance. Take a look and let me know if any section needs more depth, different content, or a layout change.",
+  createStickyNote: "Sticky note added to your board. Double-click it to edit the text, and drag it anywhere you'd like. You can also connect it to other objects using the port dots that appear on hover.",
+  createShape: "Shape added! You can resize it by dragging the corners, change its colour from the properties panel, and connect it to other shapes with the connector tool.",
+  createFrame: "Frame created. Frames are great for grouping related content — just drag objects inside the frame border to attach them. You can label it by double-clicking the title.",
+  createUserJourney: "Your user journey map is on the board! Each stage is a separate sticky note so you can add more detail, reorder steps, or colour-code them by phase. Consider adding emotion indicators or pain points below each stage.",
+  createRetrospectiveBoard: "Retrospective board is ready with three columns: What Went Well, What Didn't, and Action Items. Invite your team to add sticky notes inside each column. Action Items is a great place to track follow-ups with owners and deadlines.",
+  createStickyNoteGrid: "Sticky note grid created! Each note is individually editable — double-click any one to update its text. You can rearrange the grid by dragging individual notes or select all and move them together.",
+  moveObject: 'Object moved to its new position.',
+  resizeObject: 'Object resized successfully.',
+  updateText: 'Text updated on the object.',
+  changeColor: 'Color updated. The new color is applied immediately across all collaborators.',
+  createConnector: 'Connector added between the two objects. You can change the arrow style (end, both, none) and stroke (solid, dashed, dotted) from the connector toolbar that appears when it is selected.',
+  arrangeInGrid: 'Objects arranged in a grid. You can adjust spacing by selecting all and using the alignment toolbar at the top.',
+  spaceEvenly: 'Objects spaced evenly. Select them and use the alignment toolbar if you need to fine-tune the gaps.',
+  deleteObject: 'Object deleted from the board.',
+  clearBoard: 'Board cleared. Everything has been removed — you are starting fresh.',
+  createFrameWithNotes: "Frame with notes created! The sticky notes inside are attached to the frame — move the frame to move everything together. Double-click any note to edit its content, and use the connections field to wire them up with arrows.",
+  addFlowchart: "Your flowchart is on the board! Start and End nodes are rounded (ovals) and steps are rectangles, with arrows connecting each stage in order. You can add decision branches by placing a diamond shape and connecting it to two paths.",
 };
 
 // ─── Multi-step detection ─────────────────────────────────────────────────────

@@ -1,3 +1,28 @@
+/* ─── Mic pulse animation for voice input ────────────────────────────────── */
+@keyframes micPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.4); }
+}
+
+/* ─── Board loading spinner ──────────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Activity feed slide-in animation ───────────────────────────────────── */
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ─── Connector tip fade-in / fade-out ────────────────────────────────────── */
+@keyframes fadeInOut {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  12%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  75%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(4px); }
+}
+
 /* ─── CSS Variables (dark theme default) ─────────────────────────────────── */
 :root {
   --bg-base:      #0f172a;

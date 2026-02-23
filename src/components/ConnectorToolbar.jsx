@@ -20,6 +20,18 @@ const STYLES = [
   { value: 'elbowed',  label: 'Elbow',    icon: '⌐' },
 ];
 
+const ARROWHEADS = [
+  { value: 'end',  label: 'Arrow at end',       icon: '→' },
+  { value: 'both', label: 'Arrow at both ends', icon: '↔' },
+  { value: 'none', label: 'No arrowhead',       icon: '—' },
+];
+
+const STROKES = [
+  { value: 'solid',  label: 'Solid',  icon: '━' },
+  { value: 'dashed', label: 'Dashed', icon: '╌' },
+  { value: 'dotted', label: 'Dotted', icon: '┈' },
+];
+
 export default function ConnectorToolbar({
   connectorId,
   data,
@@ -32,6 +44,8 @@ export default function ConnectorToolbar({
 }) {
   const {
     arrowStyle = 'straight',
+    arrowHead = 'end',
+    strokeDash = 'solid',
     color = '#64748b',
     label = '',
   } = data;
@@ -115,7 +129,8 @@ export default function ConnectorToolbar({
     top,
     left,
     minWidth: TOOLBAR_MIN_WIDTH,
-    height: TOOLBAR_HEIGHT,
+    height: 'auto',
+    minHeight: TOOLBAR_HEIGHT,
     background: '#1e293b',
     border: '1px solid rgba(100,116,139,0.4)',
     borderRadius: 10,
@@ -131,7 +146,7 @@ export default function ConnectorToolbar({
     <div style={{ width: 1, height: 22, background: 'rgba(100,116,139,0.3)', margin: '0 4px', flexShrink: 0 }} />
   );
 
-  const styleBtn = (s) => ({
+  const makeBtn = (activeValue, itemValue) => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -143,10 +158,12 @@ export default function ConnectorToolbar({
     fontSize: 13,
     fontWeight: 600,
     fontFamily: 'Inter, sans-serif',
-    background: arrowStyle === s.value ? '#3b82f6' : 'transparent',
-    color: arrowStyle === s.value ? '#fff' : '#94a3b8',
+    background: activeValue === itemValue ? '#3b82f6' : 'transparent',
+    color: activeValue === itemValue ? '#fff' : '#94a3b8',
     transition: 'background 0.15s, color 0.15s',
   });
+
+  const styleBtn = (s) => makeBtn(arrowStyle, s.value);
 
   const colorSwatch = {
     width: 20,
@@ -240,7 +257,7 @@ export default function ConnectorToolbar({
       )}
 
       {/* Main toolbar */}
-      <div style={toolbarStyle} onMouseDown={(e) => e.stopPropagation()}>
+      <div style={{ ...toolbarStyle, flexWrap: 'wrap', paddingTop: 4, paddingBottom: 4 }} onMouseDown={(e) => e.stopPropagation()}>
         {/* Line style buttons */}
         {STYLES.map((s) => (
           <button
@@ -248,6 +265,34 @@ export default function ConnectorToolbar({
             title={s.label}
             onClick={() => onUpdate({ arrowStyle: s.value })}
             style={styleBtn(s)}
+          >
+            {s.icon}
+          </button>
+        ))}
+
+        {divider}
+
+        {/* Arrowhead buttons */}
+        {ARROWHEADS.map((a) => (
+          <button
+            key={a.value}
+            title={a.label}
+            onClick={() => onUpdate({ arrowHead: a.value })}
+            style={makeBtn(arrowHead, a.value)}
+          >
+            {a.icon}
+          </button>
+        ))}
+
+        {divider}
+
+        {/* Stroke style buttons */}
+        {STROKES.map((s) => (
+          <button
+            key={s.value}
+            title={s.label}
+            onClick={() => onUpdate({ strokeDash: s.value })}
+            style={makeBtn(strokeDash, s.value)}
           >
             {s.icon}
           </button>

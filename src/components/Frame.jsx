@@ -18,6 +18,7 @@ export default function Frame({ id, data }) {
     startEditing,
     stopEditing,
     objects,
+    beginMoveUndo,
   } = useBoard();
   const { user } = useUser();
   const [isDragging, setIsDragging] = useState(false);
@@ -70,6 +71,7 @@ export default function Frame({ id, data }) {
   const handleDragStart = () => {
     setIsDragging(true);
     startEditing(id);
+    beginMoveUndo(id);
     lastDragPosRef.current = { x, y };
 
     // Snapshot frame origin + all children positions at drag start.

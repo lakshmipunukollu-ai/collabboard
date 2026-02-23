@@ -7,6 +7,7 @@ import { showToast } from './Toast';
 export default function StickyNote({ id, data }) {
   const { 
     moveObjectLocal,
+    moveObjectGroupLocal,
     moveObject,
     moveObjectGroup,
     setEditingNoteId, 
@@ -20,6 +21,7 @@ export default function StickyNote({ id, data }) {
     startEditing,
     stopEditing,
     presence,
+    beginMoveUndo,
   } = useBoard();
   const { user } = useUser();
   const [isDragging, setIsDragging] = useState(false);
@@ -77,21 +79,15 @@ export default function StickyNote({ id, data }) {
     }
     setIsDragging(true);
     startEditing(id);
+    beginMoveUndo(id);
   };
 
   const handleDragMove = (e) => {
     const newX = e.target.x();
     const newY = e.target.y();
     lastDragPosRef.current = { x: newX, y: newY };
-    moveObjectLocal(id, newX, newY);
-    
-    // Throttle Firebase writes to every 50ms during drag
-    if (!dragThrottleRef.current) {
-      dragThrottleRef.current = setTimeout(() => {
-        moveObject(id, lastDragPosRef.current.x, lastDragPosRef.current.y);
-        dragThrottleRef.current = null;
-      }, 50);
-    }
+    // Local-only update during drag — Firebase write happens on dragEnd as a batch
+    moveObjectGroupLocal(id, newX, newY);
   };
 
   const handleDragEnd = (e) => {

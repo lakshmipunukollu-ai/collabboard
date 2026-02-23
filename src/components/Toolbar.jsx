@@ -13,7 +13,7 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
     createTextBox, createArrow, createImage,
     createKanban, createTable, createCodeBlock, createEmbed, createMindMapNode,
     getBoardState, stageRef, userPermission,
-    connectorStyle, setConnectorStyle,
+    activeTool, setActiveTool,
   } = useBoard();
   const imageInputRef = useRef(null);
   const [boardStateModalOpen, setBoardStateModalOpen] = useState(false);
@@ -35,59 +35,51 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
     return Math.min(scaleFactor, 200);
   }, [stageRef]);
 
+  // Click-to-place: set active tool instead of creating immediately
   const handleAddSticky = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    const sf = getScaledSize(160);
-    createStickyNote('New note', x - 80 * sf, y - 60 * sf,
-      STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)], 160 * sf, 120 * sf);
-    showToast('📝 Sticky note created', 'success');
-  }, [createStickyNote, getBoardCenter, getScaledSize]);
+    setActiveTool(activeTool === 'sticky' ? 'select' : 'sticky');
+    showToast('📝 Click on the board to place sticky note', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddRectangle = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    const sf = getScaledSize(100);
-    createShape('rectangle', x - 50 * sf, y - 40 * sf, 100 * sf, 80 * sf);
-    showToast('◻️ Rectangle created', 'success');
-  }, [createShape, getBoardCenter, getScaledSize]);
+    setActiveTool(activeTool === 'rect' ? 'select' : 'rect');
+    showToast('◻ Click on the board to place rectangle', 'info');
+  }, [setActiveTool, activeTool]);
+
+  const handleAddSquare = useCallback(() => {
+    setActiveTool(activeTool === 'square' ? 'select' : 'square');
+    showToast('⬛ Click on the board to place square', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddCircle = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    const sf = getScaledSize(100);
-    createShape('circle', x - 50 * sf, y - 50 * sf, 100 * sf, 100 * sf, '#10B981');
-    showToast('⭕ Circle created', 'success');
-  }, [createShape, getBoardCenter, getScaledSize]);
+    setActiveTool(activeTool === 'circle' ? 'select' : 'circle');
+    showToast('⭕ Click on the board to place circle', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddLine = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    const sf = getScaledSize(150);
-    createShape('line', x - 75 * sf, y - 10 * sf, 150 * sf, 20 * sf, '#F59E0B');
-    showToast('➖ Line created', 'success');
-  }, [createShape, getBoardCenter, getScaledSize]);
+    setActiveTool(activeTool === 'line' ? 'select' : 'line');
+    showToast('➖ Click on the board to place line', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddOval = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    const sf = getScaledSize(120);
-    createShape('oval', x - 60 * sf, y - 40 * sf, 120 * sf, 80 * sf, '#8B5CF6');
-    showToast('⭕ Oval created', 'success');
-  }, [createShape, getBoardCenter, getScaledSize]);
+    setActiveTool(activeTool === 'oval' ? 'select' : 'oval');
+    showToast('⭕ Click on the board to place oval', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddFrame = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    createFrame(x - 300, y - 200, 600, 400, 'Frame');
-    showToast('📦 Frame created', 'success');
-  }, [createFrame, getBoardCenter]);
+    setActiveTool(activeTool === 'frame' ? 'select' : 'frame');
+    showToast('📦 Click on the board to place frame', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddTextBox = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    createTextBox('Text', x - 100, y - 30, 200, 60);
-    showToast('T Text box created', 'success');
-  }, [createTextBox, getBoardCenter]);
+    setActiveTool(activeTool === 'text' ? 'select' : 'text');
+    showToast('T Click on the board to place text box', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddArrow = useCallback(() => {
-    const { x, y } = getBoardCenter();
-    createArrow(x - 75, y, x + 75, y);
-    showToast('→ Arrow created', 'success');
-  }, [createArrow, getBoardCenter]);
+    setActiveTool(activeTool === 'arrow' ? 'select' : 'arrow');
+    showToast('→ Click on the board to place arrow', 'info');
+  }, [setActiveTool, activeTool]);
 
   const handleAddKanban = useCallback(() => {
     const { x, y } = getBoardCenter();
@@ -136,13 +128,14 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
 
   const collapsed = isCollapsed;
 
-  const Btn = ({ icon, label, onClick, disabled, title, className = '' }) => (
+  const Btn = ({ icon, label, onClick, disabled, title, className = '', active = false }) => (
     <button
       type="button"
-      className={`toolbar-btn${className ? ' ' + className : ''}`}
+      className={`toolbar-btn${className ? ' ' + className : ''}${active ? ' toolbar-btn--active' : ''}`}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       title={title || label}
+      style={active ? { background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.6)', borderRadius: 6 } : undefined}
     >
       <span className="btn-icon">{icon}</span>
       <span className="btn-label">{label}</span>
@@ -151,15 +144,22 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
 
   return (
     <div className={`toolbar${collapsed ? ' is-collapsed' : ''}`}>
-      {/* Collapse toggle */}
-      <button
-        type="button"
-        className="toolbar-collapse-btn"
-        onClick={onToggleCollapse}
-        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        {collapsed ? '▶' : '◀'}
-      </button>
+      <div className="toolbar-divider" />
+
+      {/* NAVIGATION TOOLS */}
+      <div className="toolbar-section-label">Navigate</div>
+      <Btn
+        icon="🖱️" label="Select"
+        onClick={() => setActiveTool(activeTool === 'select' ? 'select' : 'select')}
+        title="Select tool (V) — click objects or drag to multi-select"
+        active={activeTool === 'select' || !activeTool}
+      />
+      <Btn
+        icon="✋" label="Hand"
+        onClick={() => setActiveTool(activeTool === 'hand' ? 'select' : 'hand')}
+        title="Hand tool (H) — drag to pan the canvas"
+        active={activeTool === 'hand'}
+      />
 
       <div className="toolbar-divider" />
 
@@ -170,49 +170,66 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
         icon="📝" label="Sticky Note"
         onClick={canEdit ? handleAddSticky : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Sticky note (N)' : 'View-only'}
+        title={canEdit ? 'Sticky note (N) — click board to place' : 'View-only'}
+        active={activeTool === 'sticky'}
       />
       <Btn
         icon="◻" label="Rectangle"
         onClick={canEdit ? handleAddRectangle : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Rectangle (R)' : 'View-only'}
+        title={canEdit ? 'Rectangle (R) — click board to place' : 'View-only'}
+        active={activeTool === 'rect'}
+      />
+      <Btn
+        icon={<span style={{display:'inline-block',width:14,height:14,border:'2px solid currentColor',verticalAlign:'middle'}} />}
+        label="Square"
+        onClick={canEdit ? handleAddSquare : undefined}
+        disabled={!canEdit}
+        title={canEdit ? 'Square — click board to place' : 'View-only'}
+        active={activeTool === 'square'}
       />
       <Btn
         icon="⭕" label="Circle"
         onClick={canEdit ? handleAddCircle : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Circle (C)' : 'View-only'}
+        title={canEdit ? 'Circle (C) — click board to place' : 'View-only'}
+        active={activeTool === 'circle'}
       />
       <Btn
         icon="➖" label="Line"
         onClick={canEdit ? handleAddLine : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Line (L)' : 'View-only'}
+        title={canEdit ? 'Line (L) — click board to place' : 'View-only'}
+        active={activeTool === 'line'}
       />
       <Btn
-        icon="⭕" label="Oval"
+        icon={<span style={{display:'inline-block',width:18,height:12,borderRadius:'50%',border:'2.5px solid #4A90D9',verticalAlign:'middle'}} />}
+        label="Oval"
         onClick={canEdit ? handleAddOval : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Oval (O)' : 'View-only'}
+        title={canEdit ? 'Oval (O) — click board to place' : 'View-only'}
+        active={activeTool === 'oval'}
       />
       <Btn
         icon="📦" label="Frame"
         onClick={canEdit ? handleAddFrame : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Frame (F)' : 'View-only'}
+        title={canEdit ? 'Frame (F) — click board to place' : 'View-only'}
+        active={activeTool === 'frame'}
       />
       <Btn
         icon="T" label="Text Box"
         onClick={canEdit ? handleAddTextBox : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Plain text box' : 'View-only'}
+        title={canEdit ? 'Text box — click board to place' : 'View-only'}
+        active={activeTool === 'text'}
       />
       <Btn
         icon="→" label="Arrow"
         onClick={canEdit ? handleAddArrow : undefined}
         disabled={!canEdit}
-        title={canEdit ? 'Standalone arrow' : 'View-only'}
+        title={canEdit ? 'Arrow — click board to place' : 'View-only'}
+        active={activeTool === 'arrow'}
       />
       <Btn
         icon="🖼" label="Image"
@@ -262,28 +279,17 @@ export default function Toolbar({ isCollapsed, onToggleCollapse }) {
         title={canEdit ? 'Mind map node' : 'View-only'}
       />
 
-      {/* Connector style selector — always visible when sidebar is expanded */}
+      {/* Connector hint — always visible when sidebar is expanded */}
       {!collapsed && (
-        <div style={{ padding: '4px 6px' }}>
-          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: 3 }}>Connector style</div>
-          <select
-            value={connectorStyle}
-            onChange={(e) => setConnectorStyle(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '5px 8px',
-              background: 'var(--bg-base)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              color: 'var(--text-primary)',
-              fontSize: '0.78rem',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="straight">→ Straight</option>
-            <option value="curved">⤴ Curved</option>
-            <option value="elbowed">⌐ Elbowed</option>
-          </select>
+        <div style={{ padding: '2px 8px 4px' }}>
+          <div style={{
+            fontSize: '0.65rem',
+            color: 'var(--text-muted)',
+            lineHeight: 1.4,
+            opacity: 0.75,
+          }}>
+            💡 Hover any object to see connect points
+          </div>
         </div>
       )}
 
